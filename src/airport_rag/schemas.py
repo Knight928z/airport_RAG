@@ -19,10 +19,26 @@ class AskRequest(BaseModel):
 
 
 class AskResponse(BaseModel):
+    answer_id: Optional[str] = None
     question: str
     answer: str
     citations: List[Citation]
     confidence_note: str
+
+
+class AnswerFeedbackRequest(BaseModel):
+    answer_id: Optional[str] = None
+    question: str = Field(min_length=2)
+    answer: str = Field(min_length=1)
+    confidence_note: str = Field(min_length=1)
+    rating: int = Field(ge=-1, le=1, description="1=like, -1=dislike")
+    corrected_answer: Optional[str] = None
+    comment: Optional[str] = None
+
+
+class AnswerFeedbackResponse(BaseModel):
+    status: str
+    feedback_id: str
 
 
 class IngestRequest(BaseModel):

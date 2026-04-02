@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 import re
 import mimetypes
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form
 from typing import List
@@ -11,7 +14,15 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .schemas import AskRequest, AskResponse, HealthResponse, IngestRequest, IngestResponse
+from .schemas import (
+    AnswerFeedbackRequest,
+    AnswerFeedbackResponse,
+    AskRequest,
+    AskResponse,
+    HealthResponse,
+    IngestRequest,
+    IngestResponse,
+)
 from .service import AirportRAGService
 
 
@@ -20,9 +31,38 @@ service = AirportRAGService()
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 DOC_ROOT = (BASE_DIR.parent.parent / "data" / "documents").resolve()
+FEEDBACK_ROOT = (BASE_DIR.parent.parent / "data" / "feedback").resolve()
+ANSWER_FEEDBACK_LOG = FEEDBACK_ROOT / "answer_feedback.jsonl"
+UNCOVERED_LOG = FEEDBACK_ROOT / "uncovered_questions.jsonl"
 
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+def _append_jsonl(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+
+def _record_uncovered_question(
+    *,
+    question: str,
+    answer_id: str,
+    confidence_note: str,
+    reason: str,
+    rating: int | None = None,
+) -> None:
+    payload = {
+        "event_id": str(uuid4()),
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "answer_id": answer_id,
+        "question": question,
+        "confidence_note": confidence_note,
+        "reason": reason,
+        "rating": rating,
+    }
+    _append_jsonl(UNCOVERED_LOG, payload)
 
 
 SEED_SELF_TEST_CASES = [
@@ -510,9 +550,53 @@ def ingest_default() -> IngestResponse:
 @app.post("/ask", response_model=AskResponse)
 def ask(req: AskRequest) -> AskResponse:
     try:
-        return service.ask(req.question, req.top_k)
+        result = service.ask(req.question, req.top_k)
+        answer_id = str(uuid4())
+        result.answer_id = answer_id
+
+        if result.confidence_note in {"low-confidence", "index-empty"}:
+            _record_uncovered_question(
+                question=req.question,
+                answer_id=answer_id,
+                confidence_note=result.confidence_note,
+                reason="auto-low-confidence",
+            )
+
+        return result
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/feedback", response_model=AnswerFeedbackResponse)
+def submit_feedback(req: AnswerFeedbackRequest) -> AnswerFeedbackResponse:
+    feedback_id = str(uuid4())
+    answer_id = req.answer_id or str(uuid4())
+    corrected = (req.corrected_answer or "").strip()
+
+    payload = {
+        "feedback_id": feedback_id,
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "answer_id": answer_id,
+        "question": req.question,
+        "answer": req.answer,
+        "confidence_note": req.confidence_note,
+        "rating": req.rating,
+        "corrected_answer": corrected,
+        "comment": (req.comment or "").strip(),
+    }
+    _append_jsonl(ANSWER_FEEDBACK_LOG, payload)
+
+    if req.rating < 0 or corrected:
+        reason = "user-dislike" if req.rating < 0 else "user-correction"
+        _record_uncovered_question(
+            question=req.question,
+            answer_id=answer_id,
+            confidence_note=req.confidence_note,
+            reason=reason,
+            rating=req.rating,
+        )
+
+    return AnswerFeedbackResponse(status="ok", feedback_id=feedback_id)
 
 
 @app.get("/self-test")

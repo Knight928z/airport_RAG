@@ -115,6 +115,15 @@
       .error {
         color: var(--danger);
       }
+      .feedback-row {
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+        flex-wrap: wrap;
+      }
+      .feedback-row button {
+        background: #334155;
+      }
       .pre {
         white-space: pre-wrap;
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -175,6 +184,15 @@
           <span id="confidence" class="badge">状态：待提问</span>
         </div>
         <div id="answer" class="answer meta" style="margin-top: 8px;">等待提问...</div>
+        <div class="feedback-row">
+          <button id="btn-like" type="button">👍 点赞</button>
+          <button id="btn-dislike" type="button">👎 点踩</button>
+        </div>
+        <textarea id="corrected-answer" placeholder="如果答案不准确，可在这里提交你认为正确的答案（用于后续知识库更新/模型优化）。" style="margin-top:10px; min-height:72px;"></textarea>
+        <div class="row" style="margin-top:8px;">
+          <button id="btn-submit-correction" type="button" class="secondary">提交纠错</button>
+          <span id="feedback-status" class="meta"></span>
+        </div>
       </section>
 
       <section class="card">
@@ -194,6 +212,13 @@
   const topKEl = document.getElementById('top-k');
   const confidenceEl = document.getElementById('confidence');
   const chips = Array.from(document.querySelectorAll('.chip'));
+  const likeBtn = document.getElementById('btn-like');
+  const dislikeBtn = document.getElementById('btn-dislike');
+  const correctedAnswerEl = document.getElementById('corrected-answer');
+  const submitCorrectionBtn = document.getElementById('btn-submit-correction');
+  const feedbackStatusEl = document.getElementById('feedback-status');
+
+  let lastResponse = null;
 
       function setError(message) {
         answerEl.textContent = message;
@@ -224,6 +249,29 @@
       function setConfidence(note) {
         const label = note || 'unknown';
         confidenceEl.textContent = `状态：${label}`;
+      }
+
+      async function submitFeedback(rating, correctedAnswer = '') {
+        if (!lastResponse) {
+          feedbackStatusEl.textContent = '请先完成一次问答。';
+          return;
+        }
+        const payload = {
+          answer_id: lastResponse.answer_id || null,
+          question: lastResponse.question,
+          answer: lastResponse.answer,
+          confidence_note: lastResponse.confidence_note || 'unknown',
+          rating,
+          corrected_answer: correctedAnswer || null,
+        };
+        const res = await fetch('/feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '反馈提交失败');
+        feedbackStatusEl.textContent = `反馈已记录（${new Date().toLocaleTimeString()}）。`;
       }
 
       async function ingestDefault(showStatus = false) {
@@ -267,16 +315,49 @@
           const data = await res.json();
           if (!res.ok) throw new Error(data.detail || '请求失败');
 
+          lastResponse = data;
+
           answerEl.textContent = data.answer;
           renderCitations(data.citations);
           setConfidence(data.confidence_note || 'unknown');
+          feedbackStatusEl.textContent = '';
         } catch (err) {
           setError(`问答失败：${err.message}`);
           renderCitations([]);
           setConfidence('error');
+          lastResponse = null;
         } finally {
           askBtn.disabled = false;
           askBtn.textContent = '开始问答';
+        }
+      });
+
+      likeBtn.addEventListener('click', async () => {
+        try {
+          await submitFeedback(1);
+        } catch (err) {
+          feedbackStatusEl.textContent = `点赞失败：${err.message}`;
+        }
+      });
+
+      dislikeBtn.addEventListener('click', async () => {
+        try {
+          await submitFeedback(-1);
+        } catch (err) {
+          feedbackStatusEl.textContent = `点踩失败：${err.message}`;
+        }
+      });
+
+      submitCorrectionBtn.addEventListener('click', async () => {
+        const corrected = correctedAnswerEl.value.trim();
+        if (!corrected) {
+          feedbackStatusEl.textContent = '请先填写纠错内容。';
+          return;
+        }
+        try {
+          await submitFeedback(-1, corrected);
+        } catch (err) {
+          feedbackStatusEl.textContent = `纠错提交失败：${err.message}`;
         }
       });
 

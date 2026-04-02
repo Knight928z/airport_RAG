@@ -124,3 +124,25 @@ docker compose down
 4. 风险提示
 
 如果检索证据不足，会明确提示“需人工复核”，避免越权推断。
+
+## 开发提交流程（自动写日志 + 规范提交 + 推送）
+
+仓库内提供一键提交脚本：`scripts/commit_and_push.sh`。
+
+- 功能：
+  - 自动 `git add -A`
+  - 自动向 `CHANGELOG_LOG.md` 追加时间戳与本次变更文件
+  - 校验 commit message 是否符合 Conventional Commits
+  - 自动 `git commit` 并 `git push origin main`
+
+- 用法：
+
+```bash
+bash scripts/commit_and_push.sh "feat(api): add feedback loop"
+```
+
+可选第二个参数用于写入日志备注：
+
+```bash
+bash scripts/commit_and_push.sh "fix(rules): improve battery evidence" "避免引用酒精条款"
+```

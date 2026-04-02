@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+MSG_FILE="$1"
+MSG="$(head -n 1 "$MSG_FILE")"
+
+if [[ "$MSG" =~ ^(feat|fix|refactor|perf|docs|test|chore)(\([a-z0-9._-]+\))?:\ .+ ]]; then
+  exit 0
+fi
+
+echo "[commit-msg] Invalid format: $MSG"
+echo "Use Conventional Commits, e.g.:"
+echo "  feat(api): add feedback endpoint"
+echo "  fix(rules): improve battery evidence extraction"
+exit 1

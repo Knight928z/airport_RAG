@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>白云机场知识库助手</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f7fb;
+        --card: #ffffff;
+        --line: #d9e0ee;
+        --text: #1f2a44;
+        --muted: #6b778c;
+        --primary: #1e66f5;
+        --danger: #d6336c;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      .wrap {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 24px 16px 40px;
+      }
+      .title {
+        margin: 0 0 6px;
+        font-size: 26px;
+      }
+      .subtitle {
+        margin: 0 0 18px;
+        color: var(--muted);
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 14px;
+      }
+      .row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      textarea {
+        width: 100%;
+        min-height: 88px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 12px;
+        resize: vertical;
+        font-size: 15px;
+      }
+      button {
+        border: none;
+        background: var(--primary);
+        color: #fff;
+        border-radius: 10px;
+        padding: 10px 14px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: #4c6ef5;
+      }
+      button:disabled {
+        opacity: .7;
+        cursor: not-allowed;
+      }
+      .meta {
+        color: var(--muted);
+        font-size: 13px;
+        margin-top: 8px;
+      }
+      .answer {
+        white-space: pre-wrap;
+        line-height: 1.65;
+      }
+      .citations {
+        margin: 8px 0 0;
+        padding-left: 18px;
+      }
+      .citations li {
+        margin-bottom: 10px;
+        line-height: 1.55;
+      }
+      .hint {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 2px 10px;
+        font-size: 12px;
+        border: 1px solid var(--line);
+        color: #234;
+        background: #eff3ff;
+      }
+      .chip {
+        background: #eef2ff;
+        color: #1e3a8a;
+        border: 1px solid #c7d2fe;
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .error {
+        color: var(--danger);
+      }
+      .pre {
+        white-space: pre-wrap;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px;
+        line-height: 1.5;
+        background: #f8faff;
+        border: 1px dashed var(--line);
+        border-radius: 8px;
+        padding: 10px;
+      }
+      code {
+        background: #eef2ff;
+        border-radius: 6px;
+        padding: 1px 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1 class="title">白云机场知识库助手</h1>
+      <p class="subtitle">面向一线人员：输入业务问题，返回规范结论与引用依据。</p>
+
+      <section class="card">
+        <div class="row" style="justify-content: space-between; align-items: center;">
+          <strong>知识库维护</strong>
+          <button id="btn-ingest" class="secondary">同步最新文档（data/documents）</button>
+        </div>
+        <p class="meta" id="ingest-status">如果你刚更新了文档，请先点击同步。</p>
+      </section>
+
+      <section class="card">
+        <label for="question"><strong>提问</strong></label>
+        <textarea id="question" placeholder="示例：国内出发需要提前多久到达？"></textarea>
+        <div class="row" style="margin-top: 10px; align-items: center;">
+          <label class="hint"><input id="auto-sync" type="checkbox" checked /> 提问前自动同步文档</label>
+          <label class="hint">引用条数
+            <select id="top-k" style="margin-left: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px;">
+              <option value="3">3</option>
+              <option value="5" selected>5</option>
+              <option value="8">8</option>
+            </select>
+          </label>
+        </div>
+        <div class="row" style="margin-top: 10px;">
+          <button class="chip" data-q="国内出发需要提前多久到达？">国内出发提前多久到达</button>
+          <button class="chip" data-q="国际出发海关检查要注意什么？">国际出发海关检查</button>
+          <button class="chip" data-q="我的充电宝150Wh能带吗？">充电宝 150Wh 能带吗</button>
+        </div>
+        <div class="row" style="margin-top: 10px;">
+          <button id="btn-ask">开始问答</button>
+        </div>
+        <p class="hint">当知识库没有相关证据时，系统会明确提示“无可用文档引用”。</p>
+      </section>
+
+      <section class="card">
+        <div class="row" style="justify-content: space-between; align-items: center;">
+          <strong>回答</strong>
+          <span id="confidence" class="badge">状态：待提问</span>
+        </div>
+        <div id="answer" class="answer meta" style="margin-top: 8px;">等待提问...</div>
+      </section>
+
+      <section class="card">
+        <strong>引用依据</strong>
+        <ol id="citations" class="citations"></ol>
+      </section>
+    </div>
+
+    <script>
+      const askBtn = document.getElementById('btn-ask');
+      const ingestBtn = document.getElementById('btn-ingest');
+      const questionInput = document.getElementById('question');
+      const answerEl = document.getElementById('answer');
+      const citationsEl = document.getElementById('citations');
+      const ingestStatus = document.getElementById('ingest-status');
+  const autoSyncEl = document.getElementById('auto-sync');
+  const topKEl = document.getElementById('top-k');
+  const confidenceEl = document.getElementById('confidence');
+  const chips = Array.from(document.querySelectorAll('.chip'));
+
+      function setError(message) {
+        answerEl.textContent = message;
+        answerEl.classList.add('error');
+      }
+
+      function clearError() {
+        answerEl.classList.remove('error');
+      }
+
+      function renderCitations(citations) {
+        citationsEl.innerHTML = '';
+        if (!citations || citations.length === 0) {
+          const li = document.createElement('li');
+          li.textContent = '无可用引用。';
+          citationsEl.appendChild(li);
+          return;
+        }
+
+        citations.forEach((c) => {
+          const li = document.createElement('li');
+          li.innerHTML = `<div><strong>[${c.index}]</strong> ${c.snippet}</div>
+            <div class="meta">来源：<code>${c.source}</code>${c.page ? ` ｜ 页码：${c.page}` : ''}</div>`;
+          citationsEl.appendChild(li);
+        });
+      }
+
+      function setConfidence(note) {
+        const label = note || 'unknown';
+        confidenceEl.textContent = `状态：${label}`;
+      }
+
+      async function ingestDefault(showStatus = false) {
+        if (showStatus) {
+          ingestStatus.textContent = '正在读取并入库，请稍候...';
+        }
+        const res = await fetch('/ingest/default', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || '同步失败');
+        }
+        const now = new Date().toLocaleTimeString();
+        ingestStatus.textContent = `同步完成：处理文档 ${data.processed_files} 个，索引片段 ${data.indexed_chunks} 条（${now}）。`;
+        ingestStatus.classList.remove('error');
+        return data;
+      }
+
+      askBtn.addEventListener('click', async () => {
+        const question = questionInput.value.trim();
+        if (!question) {
+          setError('请先输入问题。');
+          return;
+        }
+
+        clearError();
+        askBtn.disabled = true;
+        askBtn.textContent = '正在检索...';
+        answerEl.textContent = '处理中，请稍候...';
+        setConfidence('processing');
+
+        try {
+          if (autoSyncEl.checked) {
+            await ingestDefault(false);
+          }
+
+          const res = await fetch('/ask', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question, top_k: Number(topKEl.value) }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || '请求失败');
+
+          answerEl.textContent = data.answer;
+          renderCitations(data.citations);
+          setConfidence(data.confidence_note || 'unknown');
+        } catch (err) {
+          setError(`问答失败：${err.message}`);
+          renderCitations([]);
+          setConfidence('error');
+        } finally {
+          askBtn.disabled = false;
+          askBtn.textContent = '开始问答';
+        }
+      });
+
+      ingestBtn.addEventListener('click', async () => {
+        ingestBtn.disabled = true;
+        ingestBtn.textContent = '同步中...';
+
+        try {
+          await ingestDefault(true);
+        } catch (err) {
+          ingestStatus.textContent = `同步失败：${err.message}`;
+          ingestStatus.classList.add('error');
+        } finally {
+          ingestBtn.disabled = false;
+          ingestBtn.textContent = '同步最新文档（data/documents）';
+        }
+      });
+
+      chips.forEach((chip) => {
+        chip.addEventListener('click', () => {
+          questionInput.value = chip.dataset.q || '';
+          questionInput.focus();
+        });
+      });
+    </script>
+  </body>
+</html>

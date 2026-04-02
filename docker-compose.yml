@@ -1,0 +1,15 @@
+services:
+  airport-rag:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: airport-rag:latest
+    container_name: airport-rag
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONPATH=/app/src
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env:ro
+    restart: unless-stopped

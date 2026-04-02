@@ -1,0 +1,18 @@
+# OS / editor
+.DS_Store
+.vscode/
+.pytest_cache/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Local environment
+.env
+
+# Local data artifacts (do not version)
+data/
+
+# Temporary scripts / outputs
+tmp_*.py

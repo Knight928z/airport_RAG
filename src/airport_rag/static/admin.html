@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>知识库管理后台</title>
+    <style>
+      :root { --bg:#f6f8fc; --card:#fff; --line:#dfe6f5; --text:#1f2a44; --muted:#66708a; --primary:#225cff; --danger:#d94848; }
+      * { box-sizing: border-box; }
+      body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); }
+      .wrap { max-width:1200px; margin:0 auto; padding:20px; }
+      .grid { display:grid; grid-template-columns: 340px 1fr; gap:14px; }
+      .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; }
+      h1 { margin:0 0 8px; font-size:24px; }
+      h2 { margin:0 0 10px; font-size:16px; }
+      .muted { color:var(--muted); font-size:13px; }
+      input, select, textarea { width:100%; border:1px solid var(--line); border-radius:8px; padding:9px 10px; font-size:14px; }
+      textarea { min-height:180px; resize:vertical; }
+      .row { display:flex; gap:8px; flex-wrap:wrap; }
+      button { border:none; background:var(--primary); color:#fff; border-radius:8px; padding:8px 12px; cursor:pointer; }
+      button.secondary { background:#51607f; }
+      button.danger { background:var(--danger); }
+      button:disabled { opacity:.7; cursor:not-allowed; }
+      .doc-list { max-height:540px; overflow:auto; border:1px solid var(--line); border-radius:8px; }
+      .doc-item { padding:8px 10px; border-bottom:1px solid var(--line); cursor:pointer; }
+      .doc-item:hover { background:#f2f6ff; }
+      .doc-item.active { background:#e9f0ff; }
+      .tiny { font-size:12px; color:var(--muted); }
+      .pill { display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px; border:1px solid var(--line); background:#eef3ff; }
+      .status { margin-top:8px; font-size:13px; }
+      .status.error { color:var(--danger); }
+      .hidden { display:none; }
+      .preview-box { border:1px solid var(--line); border-radius:8px; padding:8px; background:#fafcff; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>知识库管理后台</h1>
+      <p class="muted">面向管理人员：查看文档、自动分类新增、编辑、删除并同步入库。</p>
+
+      <div class="grid">
+        <section class="card">
+          <div class="row" style="justify-content:space-between;align-items:center;">
+            <h2>知识库浏览</h2>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input id="search-q" placeholder="按文件名或内容关键词搜索" style="width:220px;padding:8px;border-radius:8px;border:1px solid var(--line);" />
+              <button id="btn-search" class="secondary">搜索</button>
+              <button id="btn-refresh" class="secondary">刷新</button>
+            </div>
+          </div>
+          <p class="tiny" id="summary">-</p>
+          <div style="display:flex;gap:10px;">
+            <div id="tree" style="width:220px;max-height:520px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px;background:#fff;"></div>
+            <div style="flex:1">
+              <div id="search-results" class="doc-list" style="max-height:520px;overflow:auto;"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>文档编辑 / 新增</h2>
+          <div class="row">
+            <div style="flex:1; min-width:220px;">
+              <label class="tiny">文件名（新增时必填）</label>
+              <input id="filename" placeholder="例如：退改签政策说明.md" />
+            </div>
+            <div style="width:150px;">
+              <label class="tiny">范围提示</label>
+              <select id="scope-hint">
+                <option value="">自动判断</option>
+                <option value="airport">airport</option>
+                <option value="airline">airline</option>
+              </select>
+            </div>
+            <div style="width:180px;">
+              <label class="tiny">航司提示（可填名称或代码）</label>
+              <input id="carrier-hint" placeholder="如：南航 / CZ / 春秋 / 9C" />
+            </div>
+          </div>
+
+          <div class="row" style="margin-top:8px;">
+            <label class="tiny" style="display:flex;align-items:center;gap:6px;">
+              <input id="auto-sync" type="checkbox" checked style="width:auto;" /> 修改后自动同步入库
+            </label>
+          </div>
+
+          <div class="row" style="margin-top:8px;">
+            <button id="btn-classify" class="secondary">预览自动分类</button>
+            <span id="classify-result" class="tiny"></span>
+          </div>
+
+          <div style="margin-top:8px;">
+            <label class="tiny">文档内容</label>
+            <textarea id="content" placeholder="输入或编辑文档内容..."></textarea>
+          </div>
+
+          <div id="binary-preview" class="preview-box hidden" style="margin-top:8px;">
+            <div id="binary-hint" class="tiny" style="margin-bottom:6px;"></div>
+            <iframe id="preview-frame" style="width:100%;height:360px;border:1px solid var(--line);border-radius:6px;background:#fff;"></iframe>
+          </div>
+
+          <div class="row" style="margin-top:10px;">
+            <button id="btn-create">新增文档</button>
+            <button id="btn-update" class="secondary" disabled>保存当前文档</button>
+            <button id="btn-delete" class="danger" disabled>删除当前文档</button>
+          </div>
+
+          <div style="margin-top:12px;border-top:1px dashed var(--line);padding-top:10px;">
+            <h2 style="font-size:14px;margin:0 0 8px;">批量上传（拖拽或选择文件）</h2>
+            <div id="dropzone" style="border:2px dashed #cfd9ff;border-radius:8px;padding:16px;text-align:center;background:#fbfdff;">将文件拖拽到此处，或点击选择
+              <input id="bulk-input" type="file" multiple style="display:none;" />
+            </div>
+            <p class="tiny">上传后会尝试自动分类到 airport 或 对应航司目录，勾选“修改后自动同步入库”将触发立即入库。</p>
+          </div>
+
+          <div id="status" class="status"></div>
+        </section>
+      </div>
+    </div>
+
+    <script>
+      const treeEl = document.getElementById('tree');
+      const resultsEl = document.getElementById('search-results');
+      const searchQEl = document.getElementById('search-q');
+      const btnSearch = document.getElementById('btn-search');
+      const bulkInput = document.getElementById('bulk-input');
+      const dropzone = document.getElementById('dropzone');
+
+      const listEl = document.getElementById('doc-list');
+      const summaryEl = document.getElementById('summary');
+      const statusEl = document.getElementById('status');
+      const filenameEl = document.getElementById('filename');
+      const contentEl = document.getElementById('content');
+      const scopeHintEl = document.getElementById('scope-hint');
+      const carrierHintEl = document.getElementById('carrier-hint');
+      const autoSyncEl = document.getElementById('auto-sync');
+      const classifyResultEl = document.getElementById('classify-result');
+      const btnUpdate = document.getElementById('btn-update');
+      const btnDelete = document.getElementById('btn-delete');
+  const binaryPreviewEl = document.getElementById('binary-preview');
+  const binaryHintEl = document.getElementById('binary-hint');
+  const previewFrameEl = document.getElementById('preview-frame');
+
+      let currentPath = '';
+      let docs = [];
+
+      function setStatus(msg, isError=false) {
+        statusEl.textContent = msg;
+        statusEl.className = isError ? 'status error' : 'status';
+      }
+
+      function renderDocs() {
+        // left list fallback (not used heavily now)
+        if (!listEl) return;
+        listEl.innerHTML = '';
+        docs.forEach((d) => {
+          const item = document.createElement('div');
+          item.className = 'doc-item' + (d.path === currentPath ? ' active' : '');
+          item.innerHTML = `<div><strong>${d.path}</strong></div>
+            <div class="tiny"><span class="pill">${d.scope}</span> ${d.carrier ? `<span class="pill">${d.carrier}</span>` : ''} 大小 ${d.size}B</div>`;
+          item.onclick = () => loadDoc(d.path);
+          listEl.appendChild(item);
+        });
+      }
+
+      async function refreshList() {
+        const res = await fetch('/admin/docs');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '加载失败');
+        docs = data.documents || [];
+        summaryEl.textContent = `文档总数：${data.total}`;
+        renderDocs();
+        await fetchTree();
+      }
+
+      async function fetchTree() {
+        const res = await fetch('/admin/tree');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '获取目录树失败');
+        treeEl.innerHTML = '';
+        renderTreeNode(data.tree, treeEl);
+      }
+
+      function renderTreeNode(node, container) {
+        const el = document.createElement('div');
+        el.style.paddingLeft = '6px';
+        if (node.type === 'dir') {
+          const title = document.createElement('div');
+          title.textContent = node.name;
+          title.style.fontWeight = '600';
+          title.style.cursor = 'pointer';
+          title.onclick = () => {
+            // toggle children
+            const sib = el.querySelector('.children');
+            if (sib) sib.style.display = sib.style.display === 'none' ? 'block' : 'none';
+          };
+          el.appendChild(title);
+          const childWrap = document.createElement('div');
+          childWrap.className = 'children';
+          childWrap.style.marginLeft = '8px';
+          node.children.forEach(c => renderTreeNode(c, childWrap));
+          el.appendChild(childWrap);
+        } else {
+          const file = document.createElement('div');
+          file.textContent = node.name;
+          file.style.cursor = 'pointer';
+          file.className = 'tiny';
+          file.onclick = () => {
+            loadDoc(node.path);
+          };
+          el.appendChild(file);
+        }
+        container.appendChild(el);
+      }
+
+      async function loadDoc(path) {
+        const res = await fetch(`/admin/docs/content?path=${encodeURIComponent(path)}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '读取失败');
+        currentPath = data.path;
+        filenameEl.value = data.path.split('/').pop();
+        const isBinary = !!data.is_binary;
+
+        if (isBinary) {
+          contentEl.value = '';
+          contentEl.placeholder = '该文件为二进制文件，当前不支持文本编辑。';
+          contentEl.disabled = true;
+          btnUpdate.disabled = true;
+          binaryPreviewEl.classList.remove('hidden');
+          const isPdf = String(data.media_type || '').includes('pdf') || data.path.toLowerCase().endsWith('.pdf');
+          if (isPdf) {
+            binaryHintEl.textContent = 'PDF 预览（如浏览器不支持内嵌预览，可在新窗口打开）：';
+            previewFrameEl.src = data.preview_url;
+          } else {
+            binaryHintEl.textContent = `二进制文件类型：${data.media_type || 'unknown'}，建议下载后查看。`;
+            previewFrameEl.src = data.preview_url;
+          }
+        } else {
+          contentEl.disabled = false;
+          contentEl.placeholder = '输入或编辑文档内容...';
+          contentEl.value = data.content || '';
+          btnUpdate.disabled = false;
+          binaryPreviewEl.classList.add('hidden');
+          previewFrameEl.src = 'about:blank';
+        }
+
+        btnDelete.disabled = false;
+        setStatus(`已加载：${data.path}`);
+      }
+
+      async function classifyPreview() {
+        const payload = {
+          filename: filenameEl.value.trim(),
+          content: contentEl.value,
+          scope_hint: scopeHintEl.value || null,
+          carrier_hint: carrierHintEl.value.trim() || null,
+        };
+        const res = await fetch('/admin/docs/classify', {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '分类失败');
+        classifyResultEl.textContent = `→ ${data.target_path}（${data.scope}${data.carrier ? ', '+data.carrier : ''}）`;
+      }
+
+      async function createDoc() {
+        const payload = {
+          filename: filenameEl.value.trim(),
+          content: contentEl.value,
+          scope_hint: scopeHintEl.value || null,
+          carrier_hint: carrierHintEl.value.trim() || null,
+          auto_sync: autoSyncEl.checked,
+        };
+        const res = await fetch('/admin/docs', {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '新增失败');
+        currentPath = data.path;
+        setStatus(`新增成功：${data.path}${data.synced ? `（已同步，chunks=${data.indexed_chunks}）` : ''}`);
+        await refreshList();
+        await loadDoc(currentPath);
+      }
+
+      async function updateDoc() {
+        if (!currentPath) return;
+        if (contentEl.disabled) {
+          setStatus('当前文件为二进制文件，暂不支持文本保存。', true);
+          return;
+        }
+        const payload = { content: contentEl.value, auto_sync: autoSyncEl.checked };
+        const res = await fetch(`/admin/docs/content?path=${encodeURIComponent(currentPath)}`, {
+          method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '保存失败');
+        setStatus(`保存成功：${data.path}${data.synced ? `（已同步，chunks=${data.indexed_chunks}）` : ''}`);
+        await refreshList();
+      }
+
+      async function deleteDoc() {
+        if (!currentPath) return;
+        if (!confirm(`确认删除 ${currentPath} ?`)) return;
+        const res = await fetch(`/admin/docs?path=${encodeURIComponent(currentPath)}&auto_sync=${autoSyncEl.checked ? 'true' : 'false'}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '删除失败');
+        setStatus(`删除成功：${data.path}${data.synced ? `（已同步，chunks=${data.indexed_chunks}）` : ''}`);
+        currentPath = '';
+        filenameEl.value = '';
+        contentEl.value = '';
+        contentEl.disabled = false;
+        contentEl.placeholder = '输入或编辑文档内容...';
+        binaryPreviewEl.classList.add('hidden');
+        previewFrameEl.src = 'about:blank';
+        btnUpdate.disabled = true;
+        btnDelete.disabled = true;
+        await refreshList();
+      }
+
+      async function search(q) {
+        if (!q || q.trim().length === 0) return;
+        const res = await fetch(`/admin/search?q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '搜索失败');
+        showSearchResults(data.matches || []);
+      }
+
+      function showSearchResults(items) {
+        resultsEl.innerHTML = '';
+        if (items.length === 0) {
+          resultsEl.innerHTML = '<div class="tiny" style="padding:10px">没有匹配项</div>';
+          return;
+        }
+        items.forEach(it => {
+          const el = document.createElement('div');
+          el.className = 'doc-item';
+          el.innerHTML = `<div><strong>${it.path}</strong></div><div class="tiny">${it.snippet || ''}</div>`;
+          el.onclick = () => loadDoc(it.path);
+          resultsEl.appendChild(el);
+        });
+      }
+
+      function setupDropzone() {
+        dropzone.onclick = () => bulkInput.click();
+        bulkInput.onchange = () => handleFiles(bulkInput.files);
+        dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.style.background = '#eef6ff'; });
+        dropzone.addEventListener('dragleave', (e) => { dropzone.style.background = '#fbfdff'; });
+        dropzone.addEventListener('drop', (e) => { e.preventDefault(); dropzone.style.background = '#fbfdff'; handleFiles(e.dataTransfer.files); });
+      }
+
+      async function handleFiles(fileList) {
+        if (!fileList || fileList.length === 0) return;
+        const fd = new FormData();
+        for (let i = 0; i < fileList.length; i++) fd.append('files', fileList[i]);
+        fd.append('auto_sync', autoSyncEl.checked ? 'true' : 'false');
+        setStatus('正在上传...');
+        const res = await fetch('/admin/docs/bulk', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) { setStatus(data.detail || '上传失败', true); return; }
+        setStatus(`上传完成：${data.created.length} 个，错误 ${data.errors.length}`);
+        if (Array.isArray(data.created) && data.created.length > 0) {
+          showSearchResults(data.created.map((it) => ({ path: it.path, snippet: it.binary ? '二进制文件已上传' : '文本文件已上传' })));
+        }
+        await refreshList();
+        if (searchQEl.value && searchQEl.value.trim().length > 0) {
+          await search(searchQEl.value.trim());
+        }
+      }
+
+      document.getElementById('btn-refresh').onclick = async () => {
+        try { await refreshList(); setStatus('列表已刷新'); } catch (e) { setStatus(e.message, true); }
+      };
+      document.getElementById('btn-classify').onclick = async () => {
+        try { await classifyPreview(); } catch (e) { setStatus(e.message, true); }
+      };
+      document.getElementById('btn-create').onclick = async () => {
+        try { await createDoc(); } catch (e) { setStatus(e.message, true); }
+      };
+      btnUpdate.onclick = async () => {
+        try { await updateDoc(); } catch (e) { setStatus(e.message, true); }
+      };
+      btnDelete.onclick = async () => {
+        try { await deleteDoc(); } catch (e) { setStatus(e.message, true); }
+      };
+      btnSearch.onclick = async () => { try { await search(searchQEl.value); } catch (e) { setStatus(e.message, true); } };
+
+      (async () => {
+        try { await refreshList(); setupDropzone(); setStatus('就绪'); } catch (e) { setStatus(e.message, true); }
+      })();
+    </script>
+  </body>
+</html>

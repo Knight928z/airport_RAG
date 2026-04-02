@@ -1,0 +1,46 @@
+Metadata-Version: 2.4
+Name: airport-rag-assistant
+Version: 0.1.0
+Summary: Airport knowledge base RAG assistant with citation and professional response style.
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+
+# 白云机场知识库 RAG 助手
+
+一个面向白云机场业务文档的中文 RAG（检索增强生成）助手：
+
+- 支持文档入库：PDF / Markdown / TXT
+- 基于 Chroma 的向量检索
+- 回答自带可追溯引用
+- 输出风格符合机场业务专业规范（结论、依据、执行建议、风险提示）
+- 提供 FastAPI 接口与 CLI
+
+## 目录结构
+
+- `src/airport_rag/`：核心实现
+- `tests/`：基础测试
+- `data/`：默认向量库目录（运行后自动生成）
+
+## 快速开始
+
+1. 安装依赖
+2. 复制环境变量模板：`.env.example -> .env`
+3. 入库机场文档
+4. 启动 API 或使用 CLI 提问
+
+## API 概览
+
+- `GET /health`：健康检查
+- `POST /ingest`：文档入库
+- `POST /ask`：RAG 问答
+
+## 专业规范输出约定
+
+所有回答按以下结构组织：
+
+1. 结论
+2. 依据（含引用）
+3. 执行建议
+4. 风险提示
+
+如果检索证据不足，会明确提示“需人工复核”，避免越权推断。

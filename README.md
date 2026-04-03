@@ -13,7 +13,7 @@
 
 - `src/airport_rag/`：核心实现
 - `tests/`：基础测试
-- `data/`：默认向量库目录（运行后自动生成）
+- `data/`：运行时数据目录（文档、补丁、反馈、向量库）
 
 ### 文档目录约定（机场 / 航司）
 
@@ -28,6 +28,16 @@
 - 问题明确包含航司（如“南航”“CZ”）时：优先并限制匹配对应航司目录
 - 问题为机场运行规范（海关、边检、航站楼等）时：优先机场目录
 - 问题为泛航司政策（如“航空公司行李规定”）时：优先航司目录
+
+### 补丁与反馈目录约定
+
+- `data/patches/`：用户纠错补丁（按航司/主题/置信分层归档）
+  - 结构：`data/patches/{airport|航司代码}/{主题}/{high|medium|low}/{YYYY-MM}-用户纠错补丁.md`
+- `data/feedback/`：反馈与治理日志
+  - `answer_feedback.jsonl`：用户点赞/点踩/纠错原始日志
+  - `patch_registry.jsonl`：补丁去重指纹注册表
+  - `patch_audit.jsonl`：补丁治理审计日志（applied/deduplicated/merged/review-merged）
+  - `uncovered_questions.jsonl`：未覆盖问题记录
 
 ## 快速开始
 
@@ -49,6 +59,7 @@
 - `GET /health`：健康检查
 - `GET /app`：普通人员可用的问答前端页面
 - `GET /admin`：管理人员文档后台页面（可视化文档管理）
+- `GET /admin/patches`：补丁治理面板（统计与审核）
 - `POST /ingest`：文档入库
 - `POST /ingest/default`：一键同步 `data/documents` 到知识库
 - `POST /ask`：RAG 问答
@@ -67,6 +78,11 @@
 - `GET /admin/tree`：目录树视图数据（用于树形浏览）
 - `GET /admin/search?q=...`：关键词搜索（路径 + 内容片段）
 - `POST /admin/docs/bulk`：批量上传（支持拖拽上传，多文件自动分类）
+
+补丁治理 API：
+
+- `GET /admin/patches/stats`：查看主题补丁数量、去重率、合并次数
+- `POST /admin/patches/review-merge?cleanup=true`：一键审核后回写主文档并清理补丁（可关闭 cleanup 仅回写）
 
 新增文档的自动分类优先级：
 

@@ -15,13 +15,15 @@ def _write(path: Path, content: str) -> None:
 
 def test_admin_patch_stats_returns_topic_and_dedup_metrics(tmp_path: Path, monkeypatch) -> None:
     doc_root = tmp_path / "documents"
+    patch_root = tmp_path / "patches"
     feedback_root = tmp_path / "feedback"
 
     monkeypatch.setattr(api_module, "DOC_ROOT", doc_root)
+    monkeypatch.setattr(api_module, "PATCH_ROOT", patch_root)
     monkeypatch.setattr(api_module, "FEEDBACK_ROOT", feedback_root)
     monkeypatch.setattr(api_module, "PATCH_AUDIT_LOG", feedback_root / "patch_audit.jsonl")
 
-    patch_file = doc_root / "airport" / "patches" / "行李" / "high" / "2026-04-用户纠错补丁.md"
+    patch_file = patch_root / "airport" / "行李" / "high" / "2026-04-用户纠错补丁.md"
     _write(
         patch_file,
         "# 用户纠错知识补丁\n\n"
@@ -55,13 +57,15 @@ def test_admin_patch_stats_returns_topic_and_dedup_metrics(tmp_path: Path, monke
 
 def test_admin_patch_review_merge_cleans_patch_and_writes_main_doc(tmp_path: Path, monkeypatch) -> None:
     doc_root = tmp_path / "documents"
+    patch_root = tmp_path / "patches"
     feedback_root = tmp_path / "feedback"
 
     monkeypatch.setattr(api_module, "DOC_ROOT", doc_root)
+    monkeypatch.setattr(api_module, "PATCH_ROOT", patch_root)
     monkeypatch.setattr(api_module, "FEEDBACK_ROOT", feedback_root)
     monkeypatch.setattr(api_module, "PATCH_AUDIT_LOG", feedback_root / "patch_audit.jsonl")
 
-    patch_file = doc_root / "airport" / "patches" / "行李" / "high" / "2026-04-用户纠错补丁.md"
+    patch_file = patch_root / "airport" / "行李" / "high" / "2026-04-用户纠错补丁.md"
     _write(
         patch_file,
         "# 用户纠错知识补丁\n\n"

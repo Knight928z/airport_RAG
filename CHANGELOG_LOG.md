@@ -2,6 +2,16 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-03 09:58:42 +0800
+
+- 提交：`refactor(patches): move patch storage to data/patches root`
+- 变更文件：
+  - `README.md`
+  - `src/airport_rag/api.py`
+  - `tests/test_admin_patches.py`
+  - `tests/test_feedback_logging.py`
+- 备注：补丁目录从data/documents/*/patches迁移至data/patches，新增兼容迁移逻辑并更新治理测试与README说明
+
 ## 2026-04-03 09:52:43 +0800
 
 - 提交：`feat(admin): add patches governance dashboard and review merge action`

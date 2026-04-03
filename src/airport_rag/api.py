@@ -30,9 +30,11 @@ from .service import AirportRAGService
 app = FastAPI(title="Airport KB RAG Assistant", version="1.0.0")
 service = AirportRAGService()
 BASE_DIR = Path(__file__).resolve().parent
+DATA_ROOT = (BASE_DIR.parent.parent / "data").resolve()
 STATIC_DIR = BASE_DIR / "static"
-DOC_ROOT = (BASE_DIR.parent.parent / "data" / "documents").resolve()
-FEEDBACK_ROOT = (BASE_DIR.parent.parent / "data" / "feedback").resolve()
+DOC_ROOT = (DATA_ROOT / "documents").resolve()
+PATCH_ROOT = (DATA_ROOT / "patches").resolve()
+FEEDBACK_ROOT = (DATA_ROOT / "feedback").resolve()
 ANSWER_FEEDBACK_LOG = FEEDBACK_ROOT / "answer_feedback.jsonl"
 UNCOVERED_LOG = FEEDBACK_ROOT / "uncovered_questions.jsonl"
 PATCH_DOC_NAME = "用户纠错补丁.md"
@@ -40,6 +42,7 @@ PATCH_REGISTRY_LOG = FEEDBACK_ROOT / "patch_registry.jsonl"
 PATCH_AUDIT_LOG = FEEDBACK_ROOT / "patch_audit.jsonl"
 PATCH_MAX_BYTES = 64 * 1024
 PATCH_MERGE_ENTRY_THRESHOLD = 8
+_LEGACY_PATCH_MIGRATED = False
 
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -132,8 +135,8 @@ def _feedback_patch_target(question: str, corrected_answer: str) -> tuple[str, P
     topic = _feedback_topic(question, corrected_answer, "")
     tier = _feedback_confidence_tier("", -1, corrected_answer)
     month_key = datetime.now().strftime("%Y-%m")
-    rel = f"{folder}/patches/{topic}/{tier}/{month_key}-{PATCH_DOC_NAME}"
-    return rel, _safe_doc_path(rel)
+    rel = f"{folder}/{topic}/{tier}/{month_key}-{PATCH_DOC_NAME}"
+    return rel, _safe_patch_path(rel)
 
 
 def _build_feedback_patch_markdown(
@@ -238,27 +241,25 @@ def _merge_patch_into_main_doc(rel_path: str, patch_file: Path, *, recreate_head
 
 def _iter_active_patch_files() -> list[tuple[str, Path]]:
     active: list[tuple[str, Path]] = []
-    if not DOC_ROOT.exists():
+    _migrate_legacy_patches_once()
+    if not PATCH_ROOT.exists():
         return active
-    for root_folder in [x for x in DOC_ROOT.iterdir() if x.is_dir()]:
-        patch_root = root_folder / "patches"
-        if not patch_root.exists():
-            continue
-        for p in patch_root.rglob(f"*{PATCH_DOC_NAME}"):
+    for root_folder in [x for x in PATCH_ROOT.iterdir() if x.is_dir()]:
+        for p in root_folder.rglob(f"*{PATCH_DOC_NAME}"):
             if not p.is_file():
                 continue
             if "archive" in p.parts:
                 continue
-            rel = p.relative_to(DOC_ROOT).as_posix()
+            rel = p.relative_to(PATCH_ROOT).as_posix()
             active.append((rel, p))
     return active
 
 
 def _patch_topic_tier_from_rel(rel_path: str) -> tuple[str, str]:
     parts = Path(rel_path).parts
-    # {scope}/patches/{topic}/{tier}/{file}
-    if len(parts) >= 5 and parts[1] == "patches":
-        return parts[2], parts[3]
+    # {scope}/{topic}/{tier}/{file}
+    if len(parts) >= 4:
+        return parts[1], parts[2]
     return "综合", "unknown"
 
 
@@ -358,8 +359,8 @@ def _maybe_apply_feedback_patch(
     carrier = _resolve_carrier_code(f"{question}\n{corrected_answer}")
     folder = carrier if carrier else "airport"
     month_key = datetime.now().strftime("%Y-%m")
-    rel_path = f"{folder}/patches/{topic}/{tier}/{month_key}-{PATCH_DOC_NAME}"
-    full_path = _safe_doc_path(rel_path)
+    rel_path = f"{folder}/{topic}/{tier}/{month_key}-{PATCH_DOC_NAME}"
+    full_path = _safe_patch_path(rel_path)
 
     fingerprint = _feedback_fingerprint(question, corrected_answer, topic)
     if fingerprint in _existing_patch_fingerprints():
@@ -593,6 +594,43 @@ def _safe_doc_path(relative_path: str) -> Path:
     if DOC_ROOT not in candidate.parents and candidate != DOC_ROOT:
         raise HTTPException(status_code=400, detail="invalid path")
     return candidate
+
+
+def _safe_patch_path(relative_path: str) -> Path:
+    rel = Path(relative_path)
+    if rel.is_absolute():
+        raise HTTPException(status_code=400, detail="patch path must be relative")
+    candidate = (PATCH_ROOT / rel).resolve()
+    if PATCH_ROOT not in candidate.parents and candidate != PATCH_ROOT:
+        raise HTTPException(status_code=400, detail="invalid patch path")
+    return candidate
+
+
+def _migrate_legacy_patches_once() -> None:
+    global _LEGACY_PATCH_MIGRATED
+    if _LEGACY_PATCH_MIGRATED:
+        return
+    _LEGACY_PATCH_MIGRATED = True
+
+    if not DOC_ROOT.exists():
+        return
+    PATCH_ROOT.mkdir(parents=True, exist_ok=True)
+
+    for scope_dir in [x for x in DOC_ROOT.iterdir() if x.is_dir()]:
+        legacy = scope_dir / "patches"
+        if not legacy.exists():
+            continue
+        target_scope = PATCH_ROOT / scope_dir.name
+        target_scope.mkdir(parents=True, exist_ok=True)
+        for item in legacy.iterdir():
+            dest = target_scope / item.name
+            if dest.exists():
+                continue
+            item.replace(dest)
+        try:
+            legacy.rmdir()
+        except OSError:
+            pass
 
 
 def _load_carrier_alias_map() -> dict[str, str]:

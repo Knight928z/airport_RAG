@@ -48,12 +48,15 @@ def test_ask_low_confidence_auto_records_uncovered(tmp_path: Path, monkeypatch) 
 def test_feedback_dislike_and_correction_are_logged(tmp_path: Path, monkeypatch) -> None:
     feedback_root = tmp_path / "feedback"
     doc_root = tmp_path / "documents"
+    patch_root = tmp_path / "patches"
     (doc_root / "airport").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(api_module, "FEEDBACK_ROOT", feedback_root)
     monkeypatch.setattr(api_module, "ANSWER_FEEDBACK_LOG", feedback_root / "answer_feedback.jsonl")
     monkeypatch.setattr(api_module, "UNCOVERED_LOG", feedback_root / "uncovered_questions.jsonl")
     monkeypatch.setattr(api_module, "PATCH_REGISTRY_LOG", feedback_root / "patch_registry.jsonl")
+    monkeypatch.setattr(api_module, "PATCH_AUDIT_LOG", feedback_root / "patch_audit.jsonl")
     monkeypatch.setattr(api_module, "DOC_ROOT", doc_root)
+    monkeypatch.setattr(api_module, "PATCH_ROOT", patch_root)
 
     ingest_calls = {"count": 0}
 
@@ -109,7 +112,7 @@ def test_feedback_dislike_and_correction_are_logged(tmp_path: Path, monkeypatch)
     assert uncovered[0]["reason"] == "user-dislike"
     assert uncovered[0]["question"] == "我的充电宝150Wh能带吗？"
 
-    patch_file = doc_root / body["patch_path"]
+    patch_file = patch_root / body["patch_path"]
     assert patch_file.exists()
     patch_text = patch_file.read_text(encoding="utf-8")
     assert "用户纠错知识补丁" in patch_text
@@ -119,12 +122,15 @@ def test_feedback_dislike_and_correction_are_logged(tmp_path: Path, monkeypatch)
 def test_feedback_like_does_not_trigger_patch_flow(tmp_path: Path, monkeypatch) -> None:
     feedback_root = tmp_path / "feedback"
     doc_root = tmp_path / "documents"
+    patch_root = tmp_path / "patches"
     (doc_root / "airport").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(api_module, "FEEDBACK_ROOT", feedback_root)
     monkeypatch.setattr(api_module, "ANSWER_FEEDBACK_LOG", feedback_root / "answer_feedback.jsonl")
     monkeypatch.setattr(api_module, "UNCOVERED_LOG", feedback_root / "uncovered_questions.jsonl")
     monkeypatch.setattr(api_module, "PATCH_REGISTRY_LOG", feedback_root / "patch_registry.jsonl")
+    monkeypatch.setattr(api_module, "PATCH_AUDIT_LOG", feedback_root / "patch_audit.jsonl")
     monkeypatch.setattr(api_module, "DOC_ROOT", doc_root)
+    monkeypatch.setattr(api_module, "PATCH_ROOT", patch_root)
 
     client = TestClient(api_module.app)
     resp = client.post(
@@ -151,12 +157,15 @@ def test_feedback_like_does_not_trigger_patch_flow(tmp_path: Path, monkeypatch) 
 def test_feedback_patch_deduplicates_same_question(tmp_path: Path, monkeypatch) -> None:
     feedback_root = tmp_path / "feedback"
     doc_root = tmp_path / "documents"
+    patch_root = tmp_path / "patches"
     (doc_root / "airport").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(api_module, "FEEDBACK_ROOT", feedback_root)
     monkeypatch.setattr(api_module, "ANSWER_FEEDBACK_LOG", feedback_root / "answer_feedback.jsonl")
     monkeypatch.setattr(api_module, "UNCOVERED_LOG", feedback_root / "uncovered_questions.jsonl")
     monkeypatch.setattr(api_module, "PATCH_REGISTRY_LOG", feedback_root / "patch_registry.jsonl")
+    monkeypatch.setattr(api_module, "PATCH_AUDIT_LOG", feedback_root / "patch_audit.jsonl")
     monkeypatch.setattr(api_module, "DOC_ROOT", doc_root)
+    monkeypatch.setattr(api_module, "PATCH_ROOT", patch_root)
 
     class _IngestResult:
         indexed_chunks = 1
@@ -197,12 +206,15 @@ def test_feedback_patch_deduplicates_same_question(tmp_path: Path, monkeypatch) 
 def test_feedback_patch_auto_merges_when_threshold_reached(tmp_path: Path, monkeypatch) -> None:
     feedback_root = tmp_path / "feedback"
     doc_root = tmp_path / "documents"
+    patch_root = tmp_path / "patches"
     (doc_root / "airport").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(api_module, "FEEDBACK_ROOT", feedback_root)
     monkeypatch.setattr(api_module, "ANSWER_FEEDBACK_LOG", feedback_root / "answer_feedback.jsonl")
     monkeypatch.setattr(api_module, "UNCOVERED_LOG", feedback_root / "uncovered_questions.jsonl")
     monkeypatch.setattr(api_module, "PATCH_REGISTRY_LOG", feedback_root / "patch_registry.jsonl")
+    monkeypatch.setattr(api_module, "PATCH_AUDIT_LOG", feedback_root / "patch_audit.jsonl")
     monkeypatch.setattr(api_module, "DOC_ROOT", doc_root)
+    monkeypatch.setattr(api_module, "PATCH_ROOT", patch_root)
     monkeypatch.setattr(api_module, "PATCH_MERGE_ENTRY_THRESHOLD", 2)
     monkeypatch.setattr(api_module, "PATCH_MAX_BYTES", 10**9)
 

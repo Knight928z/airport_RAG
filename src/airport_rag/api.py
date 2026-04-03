@@ -34,6 +34,7 @@ DOC_ROOT = (BASE_DIR.parent.parent / "data" / "documents").resolve()
 FEEDBACK_ROOT = (BASE_DIR.parent.parent / "data" / "feedback").resolve()
 ANSWER_FEEDBACK_LOG = FEEDBACK_ROOT / "answer_feedback.jsonl"
 UNCOVERED_LOG = FEEDBACK_ROOT / "uncovered_questions.jsonl"
+PATCH_DOC_NAME = "用户纠错补丁.md"
 
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -43,6 +44,84 @@ def _append_jsonl(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+
+def _append_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(content)
+
+
+def _feedback_patch_target(question: str, corrected_answer: str) -> tuple[str, Path]:
+    carrier = _resolve_carrier_code(f"{question}\n{corrected_answer}")
+    folder = carrier if carrier else "airport"
+    rel = f"{folder}/{PATCH_DOC_NAME}"
+    return rel, _safe_doc_path(rel)
+
+
+def _build_feedback_patch_markdown(
+    *,
+    question: str,
+    answer: str,
+    confidence_note: str,
+    rating: int,
+    corrected_answer: str,
+    comment: str,
+) -> str:
+    ts = datetime.now().isoformat(timespec="seconds")
+    quality_signal = "dislike" if rating < 0 else "like"
+    correction = corrected_answer if corrected_answer else "（用户未提供具体改写，需基于评价继续优化）"
+    angle = comment if comment else "（未提供）"
+    return (
+        "\n\n---\n"
+        f"## feedback-patch {ts}\n"
+        f"- 问题：{question}\n"
+        f"- 旧答案：{answer}\n"
+        f"- 置信标记：{confidence_note}\n"
+        f"- 质量信号：{quality_signal}\n"
+        f"- 评价角度：{angle}\n"
+        f"- 建议修正：{correction}\n"
+        "- 应用策略：将本条作为知识补丁参与后续检索与回答重写，优先采用“建议修正”中的可核验事实。\n"
+    )
+
+
+def _maybe_apply_feedback_patch(
+    *,
+    question: str,
+    answer: str,
+    confidence_note: str,
+    rating: int,
+    corrected_answer: str,
+    comment: str,
+) -> tuple[bool, str | None, str | None]:
+    trigger = (rating < 0) or bool(corrected_answer.strip())
+    if not trigger:
+        return False, None, None
+
+    rel_path, full_path = _feedback_patch_target(question, corrected_answer)
+    if not full_path.exists():
+        full_path.write_text(
+            "# 用户纠错知识补丁\n\n"
+            "> 自动由 /feedback 触发生成，用于将用户点踩与纠错内容纳入知识库增量修正。\n",
+            encoding="utf-8",
+        )
+
+    patch_md = _build_feedback_patch_markdown(
+        question=question,
+        answer=answer,
+        confidence_note=confidence_note,
+        rating=rating,
+        corrected_answer=corrected_answer,
+        comment=comment,
+    )
+    _append_text(full_path, patch_md)
+
+    try:
+        service.ingest("./data/documents")
+        iterated = service.ask(question)
+        return True, rel_path, iterated.answer
+    except Exception:
+        return True, rel_path, None
 
 
 def _record_uncovered_question(
@@ -591,6 +670,15 @@ def submit_feedback(req: AnswerFeedbackRequest) -> AnswerFeedbackResponse:
     }
     _append_jsonl(ANSWER_FEEDBACK_LOG, payload)
 
+    patch_applied, patch_path, iterated_answer = _maybe_apply_feedback_patch(
+        question=req.question,
+        answer=req.answer,
+        confidence_note=req.confidence_note,
+        rating=req.rating,
+        corrected_answer=corrected,
+        comment=(req.comment or "").strip(),
+    )
+
     if req.rating < 0 or corrected:
         reason = "user-dislike" if req.rating < 0 else "user-correction"
         _record_uncovered_question(
@@ -601,7 +689,13 @@ def submit_feedback(req: AnswerFeedbackRequest) -> AnswerFeedbackResponse:
             rating=req.rating,
         )
 
-    return AnswerFeedbackResponse(status="ok", feedback_id=feedback_id)
+    return AnswerFeedbackResponse(
+        status="ok",
+        feedback_id=feedback_id,
+        patch_applied=patch_applied,
+        patch_path=patch_path,
+        iterated_answer=iterated_answer,
+    )
 
 
 @app.get("/self-test")

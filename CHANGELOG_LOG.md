@@ -2,6 +2,16 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-03 09:36:21 +0800
+
+- 提交：`feat(feedback): add auto knowledge patch closed-loop`
+- 变更文件：
+  - `src/airport_rag/api.py`
+  - `src/airport_rag/schemas.py`
+  - `src/airport_rag/static/index.html`
+  - `tests/test_feedback_logging.py`
+- 备注：点踩或纠错自动写入用户纠错补丁文档并触发自动入库，反馈接口返回patch状态与迭代答案，前端同步展示闭环结果
+
 ## 2026-04-03 09:27:58 +0800
 
 - 提交：`fix(api): keep admin pdf preview inline instead of auto-download`

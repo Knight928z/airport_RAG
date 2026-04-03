@@ -271,7 +271,19 @@
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || '反馈提交失败');
-        feedbackStatusEl.textContent = `反馈已记录（${new Date().toLocaleTimeString()}）。`;
+        const tips = [];
+        if (data.patch_applied) {
+          tips.push(`已触发知识补丁：${data.patch_path || 'unknown'}`);
+        }
+        if (data.iterated_answer) {
+          answerEl.textContent = data.iterated_answer;
+          if (lastResponse) {
+            lastResponse.answer = data.iterated_answer;
+          }
+          tips.push('已自动迭代答案');
+        }
+        const suffix = tips.length ? `，${tips.join('；')}` : '';
+        feedbackStatusEl.textContent = `反馈已记录（${new Date().toLocaleTimeString()}）${suffix}。`;
       }
 
       async function ingestDefault(showStatus = false) {

@@ -39,6 +39,9 @@ class AnswerFeedbackRequest(BaseModel):
 class AnswerFeedbackResponse(BaseModel):
     status: str
     feedback_id: str
+    patch_applied: bool = False
+    patch_path: Optional[str] = None
+    iterated_answer: Optional[str] = None
 
 
 class IngestRequest(BaseModel):

@@ -2,6 +2,14 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-03 08:30:33 +0800
+
+- 提交：`fix(rules): add cabin baggage allowance rule for class queries`
+- 变更文件：
+  - `src/airport_rag/rules.py`
+  - `tests/test_service_rerank.py`
+- 备注：修复公务舱行李额问答误命中补偿金额的问题，新增回归测试锁定30公斤答案
+
 ## 2026-04-03 08:19:49 +0800
 
 - 提交：`fix(rules): support airport hotline contact retrieval`

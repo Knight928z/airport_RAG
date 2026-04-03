@@ -304,6 +304,31 @@ def test_battery_answer_evidence_avoids_unrelated_alcohol_clause() -> None:
     assert "酒精的体积百分含量" not in ans.answer
 
 
+def test_rule_based_answer_for_business_class_baggage_allowance() -> None:
+    retrieved = [
+        RetrievedChunk(
+            chunk_id="mu-comp-1",
+            text="如行李发生延误，公务舱旅客人民币400元，经济舱旅客人民币200元。",
+            source="/data/documents/MU/客票补偿标准",
+            page=None,
+            distance=0.1,
+        ),
+        RetrievedChunk(
+            chunk_id="ap-bag-1",
+            text="经济舱旅客免费行李额为20公斤，公务舱旅客为30公斤，头等舱旅客为40公斤。",
+            source="/data/documents/airport/托运行李规定",
+            page=None,
+            distance=0.2,
+        ),
+    ]
+
+    ans = _build_rule_based_answer("公务舱旅客能携带多少行李？", retrieved)
+
+    assert ans is not None
+    assert "30公斤" in ans.answer
+    assert "人民币400元" not in ans.answer
+
+
 def test_rule_based_answer_for_infant_ticket_age_question() -> None:
     retrieved = [
         RetrievedChunk(

@@ -156,6 +156,10 @@ def localize_answer_text(text: str, lang: str) -> str:
 
 
 def build_rule_based_answer(question: str, retrieved: list[RetrievedChunk]) -> RuleResult | None:
+    cabin_baggage = _build_cabin_baggage_allowance_answer(question, retrieved)
+    if cabin_baggage is not None:
+        return cabin_baggage
+
     comparison = _build_comparison_answer(question, retrieved)
     if comparison is not None:
         return comparison
@@ -184,6 +188,76 @@ def build_rule_based_answer(question: str, retrieved: list[RetrievedChunk]) -> R
     if infant is not None:
         return infant
 
+    return None
+
+
+def _build_cabin_baggage_allowance_answer(question: str, retrieved: list[RetrievedChunk]) -> RuleResult | None:
+    q = question.lower()
+    cabin_keywords = ["经济舱", "公务舱", "头等舱", "婴儿票"]
+    if not any(k in q for k in cabin_keywords):
+        return None
+    if not any(k in q for k in ["行李", "托运", "携带", "免费行李额", "公斤", "kg"]):
+        return None
+
+    target_cabin = next((k for k in cabin_keywords if k in q), None)
+    if target_cabin is None:
+        return None
+
+    best_item: RetrievedChunk | None = None
+    best_sentence = ""
+    best_score = -1
+
+    for item in retrieved:
+        source_norm = item.source.replace("\\", "/").lower()
+        source_bonus = 3 if "托运行李规定" in source_norm else 0
+        sentences = [s.strip() for s in re.split(r"(?<=[。！？；;.!?])|\n+", item.text or "") if s.strip()]
+        for sent in sentences:
+            s = sent.lower()
+            score = source_bonus
+            if target_cabin in s:
+                score += 8
+            if any(k in s for k in ["免费行李额", "公斤", "kg", "托运行李"]):
+                score += 5
+            if "行李" in s:
+                score += 2
+            if any(k in s for k in ["人民币", "补偿费", "票价", "手续费", "赔偿"]):
+                score -= 8
+            if score > best_score:
+                best_score = score
+                best_item = item
+                best_sentence = sent
+
+    if best_item is None or best_score < 8:
+        return None
+
+    kg = _extract_cabin_allowance_kg(best_sentence, target_cabin)
+    if kg is None:
+        kg = _extract_cabin_allowance_kg(best_item.text, target_cabin)
+
+    if kg is not None:
+        conclusion = f"{target_cabin}旅客一般免费托运行李额为{kg}公斤。"
+    else:
+        conclusion = f"根据现有条款，{target_cabin}旅客行李额需按对应舱位规定执行。"
+
+    lines = [
+        f"结论：{conclusion}",
+        "依据：",
+        f"- [1] {best_sentence[:180]}（来源：{best_item.source}）",
+        "执行建议：若涉及具体航司航线，请同时核对承运航司行李政策是否存在更严格限制。",
+        "风险提示：不同航司或特殊票价产品可能存在差异，最终以购票规则与值机执行标准为准。",
+    ]
+    return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[best_item.chunk_id])
+
+
+def _extract_cabin_allowance_kg(text: str, cabin: str) -> int | None:
+    patterns = [
+        rf"{re.escape(cabin)}旅客[^。；\n]{{0,24}}(?:为|是)\s*(\d+)\s*(?:公斤|kg)",
+        rf"{re.escape(cabin)}[^。；\n]{{0,24}}(?:免费行李额)?[^\d]{{0,8}}(\d+)\s*(?:公斤|kg)",
+    ]
+    for p in patterns:
+        m = re.search(p, text, flags=re.IGNORECASE)
+        if m:
+            return int(m.group(1))
     return None
 
 

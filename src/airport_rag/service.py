@@ -11,19 +11,32 @@ from .embeddings import EmbeddingProvider
 from .ingest import ingest_path
 from .prompts import SYSTEM_STYLE, build_user_prompt
 from .rules import (
+    AIRLINE_SCOPE_KEYWORDS,
+    AIRPORT_SCOPE_KEYWORDS,
+    BATTERY_AIRPORT_KEYWORDS,
+    CARRIER_ALIAS_HINT_MAP,
+    DEPARTURE_AIRPORT_KEYWORDS,
+    SOURCE_POLICY_COMPARE_KEYWORDS,
     RuleResult,
     build_factoid_answer as _rule_build_factoid_answer,
     build_numeric_fact_answer as _rule_build_numeric_fact_answer,
     build_pregnancy_answer as _rule_build_pregnancy_answer,
     build_refund_rule_answer,
+    detect_question_language as _rule_detect_question_language,
+    expand_cross_lingual_query as _rule_expand_cross_lingual_query,
+    expand_question_with_topic_alias as _rule_expand_question_with_topic_alias,
     build_rule_based_answer as _rule_build_rule_based_answer,
     extract_best_fact_sentence as _rule_extract_best_fact_sentence,
     has_duration_fact as _rule_has_duration_fact,
+    infer_topics as _rule_infer_topics,
     is_contact_question as _rule_is_contact_question,
     is_duration_question as _rule_is_duration_question,
     is_fee_question as _rule_is_fee_question,
     is_numeric_question as _rule_is_numeric_question,
+    is_priority_rule_question as _rule_is_priority_rule_question,
     localize_answer_text as _rule_localize_answer_text,
+    normalize_for_matching as _rule_normalize_for_matching,
+    required_intent_tokens as _rule_required_intent_tokens,
 )
 from .schemas import AskResponse, Citation, IngestResponse
 from .vector_store import ChromaStore, RetrievedChunk
@@ -281,75 +294,22 @@ class AirportRAGService:
 
 
 def _is_priority_rule_question(question: str) -> bool:
-    q = (question or "").lower()
-    battery = any(k in q for k in ["充电宝", "锂电池", "额定能量", "wh"])
-    departure_time = ("出发" in q and any(k in q for k in ["提前", "多久", "几小时", "什么时候", "几点"]))
-    return battery or departure_time
+    return _rule_is_priority_rule_question(question)
 
 
 def _detect_question_language(question: str) -> str:
-    has_cjk = bool(re.search(r"[\u4e00-\u9fff]", question or ""))
-    letters = re.findall(r"[A-Za-z]", question or "")
-    if letters and not has_cjk:
-        return "en"
-    if has_cjk:
-        return "zh"
-    return "zh"
+    return _rule_detect_question_language(question)
 
 
 def _expand_cross_lingual_query(question: str) -> str:
     q = question or ""
-    q_lower = q.lower()
-
-    zh_to_en = {
-        "行李": "baggage luggage",
-        "托运": "check-in checked",
-        "随身": "carry-on cabin",
-        "退票": "refund",
-        "改签": "change rebook",
-        "值机": "check-in",
-        "中转": "transit transfer",
-        "海关": "customs",
-        "边检": "immigration border control",
-        "客服": "customer service hotline",
-        "热线": "hotline contact",
-        "航班": "flight",
-        "孕妇": "pregnant passenger",
-    }
-    en_to_zh = {
-        "baggage": "行李",
-        "luggage": "行李",
-        "checked": "托运",
-        "carry": "随身",
-        "refund": "退票",
-        "change": "改签",
-        "rebook": "改签",
-        "check-in": "值机",
-        "transit": "中转",
-        "transfer": "中转",
-        "customs": "海关",
-        "immigration": "边检",
-        "hotline": "客服热线",
-        "customer service": "客服",
-        "flight": "航班",
-        "pregnant": "孕妇",
-    }
-
     extra: list[str] = []
-    for zh, en in zh_to_en.items():
-        if zh in q:
-            extra.append(en)
-    for en, zh in en_to_zh.items():
-        if en in q_lower:
-            extra.append(zh)
-
     code = _resolve_carrier_code_from_question(q)
     if code:
         alias_map = _load_carrier_alias_map()
         aliases = [k for k, v in alias_map.items() if v == code]
         extra.extend(aliases[:10])
-
-    return q if not extra else f"{q} {' '.join(extra)}"
+    return _rule_expand_cross_lingual_query(q, extra_terms=extra)
 
 
 def _build_english_fallback_query(question: str) -> str:
@@ -500,47 +460,11 @@ def _has_duration_fact(text: str) -> bool:
 
 
 def _normalize_for_matching(text: str) -> str:
-    normalized = text.lower()
-    synonym_map = {
-        "现钞": "现金",
-        "外币现钞": "外币现金",
-        "进境": "入境",
-        "出境": "离境",
-        "折合": "兑换",
-        "通关": "入境",
-        "客户服务热线": "客服热线",
-        "客户服务电话": "客服热线",
-        "客服电话": "客服热线",
-        "服务热线": "客服热线",
-        "客服号码": "客服热线",
-    }
-    for src, dst in synonym_map.items():
-        normalized = normalized.replace(src, dst)
-    return normalized
+    return _rule_normalize_for_matching(text)
 
 
 def _required_intent_tokens(normalized_question: str) -> set[str]:
-    rules = {
-        "cash": {"现金", "现钞", "人民币", "美元", "货币"},
-        "battery": {"充电宝", "锂电池", "电池", "wh", "瓦特小时"},
-        "ticket": {"婴儿票", "儿童票", "成人票", "机票"},
-    }
-
-    intents: set[str] = set()
-    if any(k in normalized_question for k in ["现金", "现钞", "人民币", "美元", "货币"]):
-        intents.add("cash")
-    has_wh_token = bool(re.search(r"\b\d+(?:\.\d+)?\s*wh\b|\bwh\b", normalized_question.lower()))
-    if any(k in normalized_question for k in ["充电宝", "锂电池", "电池", "瓦特小时"]) or has_wh_token:
-        intents.add("battery")
-    if any(k in normalized_question for k in ["婴儿票", "儿童票", "成人票", "机票"]) or (
-        "票" in normalized_question and any(k in normalized_question for k in ["岁", "周岁", "年龄"])
-    ):
-        intents.add("ticket")
-
-    tokens: set[str] = set()
-    for intent in intents:
-        tokens.update(rules[intent])
-    return tokens
+    return _rule_required_intent_tokens(normalized_question)
 
 
 def _build_numeric_fact_answer(question: str, retrieved: list[RetrievedChunk]) -> _AnswerBundle | None:
@@ -699,35 +623,11 @@ def _intent_compatible(question: str, text: str, source: str = "") -> bool:
 
 
 def _infer_topics(text: str) -> set[str]:
-    lowered = text.lower()
-    rules = {
-        "departure": ["出发", "到达", "值机", "登机", "航站楼", "起飞", "departure", "arrival", "check-in", "boarding", "terminal"],
-        "customs": ["海关", "申报", "红通道", "绿通道", "进境", "出境", "征税", "customs", "declare", "declaration"],
-        "baggage": ["行李", "托运", "超重", "尺寸", "重量", "手提", "baggage", "luggage", "checked", "carry-on", "excess"],
-        "battery": ["充电宝", "锂电池", "电池", "wh", "瓦特小时", "毫安", "额定能量", "battery", "power bank", "lithium"],
-        "border": ["边防", "边检", "出入境", "港澳", "台湾", "通行证", "外国籍", "停留", "immigration", "border", "visa", "entry"],
-    }
-    topics: set[str] = set()
-    for topic, keywords in rules.items():
-        if any(keyword in lowered for keyword in keywords):
-            topics.add(topic)
-    return topics
+    return _rule_infer_topics(text)
 
 
 def _expand_question_with_topic_alias(question: str, topics: set[str]) -> str:
-    alias_map = {
-        "battery": "充电宝 锂电池 额定能量 wh 毫安",
-        "customs": "海关 申报 红通道 绿通道",
-        "baggage": "行李 托运 手提 尺寸 重量",
-        "departure": "出发 到达 值机 登机 航站楼",
-        "border": "边防 边检 出入境 港澳 台湾 通行证 外国籍 停留",
-    }
-    parts = [question]
-    for topic in topics:
-        alias = alias_map.get(topic)
-        if alias:
-            parts.append(alias)
-    return " ".join(parts)
+    return _rule_expand_question_with_topic_alias(question, topics)
 
 
 def _build_collection_name(base: str, backend: str, model_name: str) -> str:
@@ -958,80 +858,19 @@ def _source_scope_and_carrier(item: RetrievedChunk) -> tuple[str, str]:
 
 def _build_source_policy(question: str) -> _SourcePolicy:
     q = question.lower()
-
-    compare_keywords = [
-        "区别",
-        "不同",
-        "一样",
-        "相同",
-        "近似",
-        "对比",
-        "分别",
-        "各航司",
-        "各航空公司",
-        "difference",
-        "compare",
-        "similar",
-    ]
-    is_compare = any(k in q for k in compare_keywords)
+    is_compare = any(k in q for k in SOURCE_POLICY_COMPARE_KEYWORDS)
 
     code = _resolve_carrier_code_from_question(question)
     if code:
         return _SourcePolicy(required_scope="airline", required_carrier=code, preferred_scope="airline")
 
-    battery_airport_keywords = ["充电宝", "锂电池", "额定能量", "wh", "瓦特小时"]
-    departure_airport_keywords = ["国内出发", "国际出发", "出发", "值机", "航站楼", "登机"]
-    if any(k in q for k in battery_airport_keywords):
+    if any(k in q for k in BATTERY_AIRPORT_KEYWORDS):
         return _SourcePolicy(required_scope="airport", preferred_scope="airport")
-    if any(k in q for k in departure_airport_keywords) and any(k in q for k in ["提前", "多久", "几小时", "什么时候", "几点"]):
+    if any(k in q for k in DEPARTURE_AIRPORT_KEYWORDS) and any(k in q for k in ["提前", "多久", "几小时", "什么时候", "几点"]):
         return _SourcePolicy(required_scope="airport", preferred_scope="airport")
 
-    airport_keywords = [
-        "白云机场",
-        "机场规定",
-        "机场",
-        "航站楼",
-        "海关",
-        "边检",
-        "边防",
-        "入境卡",
-        "外国人入境",
-        "港澳居民",
-        "airport",
-        "terminal",
-        "customs",
-        "immigration",
-        "border control",
-    ]
-    airline_keywords = [
-        "航司",
-        "航空公司",
-        "承运人",
-        "机票",
-        "婴儿票",
-        "儿童票",
-        "退改签",
-        "行李额",
-        "客服",
-        "热线",
-        "客服电话",
-        "孕妇",
-        "妊娠",
-        "产后",
-        "分娩",
-        "轮椅",
-        "特殊旅客",
-        "airline",
-        "baggage",
-        "refund",
-        "rebook",
-        "ticket",
-        "customer service",
-        "hotline",
-    ]
-
-    airport_hit = any(k in q for k in airport_keywords)
-    airline_hit = any(k in q for k in airline_keywords)
+    airport_hit = any(k in q for k in AIRPORT_SCOPE_KEYWORDS)
+    airline_hit = any(k in q for k in AIRLINE_SCOPE_KEYWORDS)
 
     if is_compare and (airport_hit or airline_hit):
         return _SourcePolicy(preferred_scope=None)
@@ -1169,23 +1008,7 @@ def _carrier_name_aliases(company_name: str) -> set[str]:
     normalized_variants = {_normalize_carrier_key(v) for v in variants if v.strip()}
     expanded = set(normalized_variants)
 
-    alias_hint = {
-        "南方": "南航",
-        "东方": "东航",
-        "国际": "国航",
-        "海南": "海航",
-        "深圳": "深航",
-        "厦门": "厦航",
-        "山东": "山航",
-        "春秋": "春秋",
-        "吉祥": "吉祥",
-        "emirates": "ek",
-        "china southern": "cz",
-        "china eastern": "mu",
-        "air china": "ca",
-        "spring airlines": "9c",
-    }
-    for key, alias in alias_hint.items():
+    for key, alias in CARRIER_ALIAS_HINT_MAP.items():
         if any(key in name for name in normalized_variants):
             expanded.add(_normalize_carrier_key(alias))
 

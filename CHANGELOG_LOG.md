@@ -2,6 +2,14 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-03 08:36:34 +0800
+
+- 提交：`refactor(rules): centralize maps keywords and hints from service`
+- 变更文件：
+  - `src/airport_rag/rules.py`
+  - `src/airport_rag/service.py`
+- 备注：将zhtoen/entozh、intent rules、topic map、source-policy keywords、carrier alias hint集中到rules.py，service仅保留编排与调用
+
 ## 2026-04-03 08:30:33 +0800
 
 - 提交：`fix(rules): add cabin baggage allowance rule for class queries`

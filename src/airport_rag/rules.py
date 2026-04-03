@@ -2,8 +2,194 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Iterable
 
 from .vector_store import RetrievedChunk
+
+
+ZH_TO_EN_QUERY_MAP: dict[str, str] = {
+    "行李": "baggage luggage",
+    "托运": "check-in checked",
+    "随身": "carry-on cabin",
+    "退票": "refund",
+    "改签": "change rebook",
+    "值机": "check-in",
+    "中转": "transit transfer",
+    "海关": "customs",
+    "边检": "immigration border control",
+    "客服": "customer service hotline",
+    "热线": "hotline contact",
+    "航班": "flight",
+    "孕妇": "pregnant passenger",
+}
+
+EN_TO_ZH_QUERY_MAP: dict[str, str] = {
+    "baggage": "行李",
+    "luggage": "行李",
+    "checked": "托运",
+    "carry": "随身",
+    "refund": "退票",
+    "change": "改签",
+    "rebook": "改签",
+    "check-in": "值机",
+    "transit": "中转",
+    "transfer": "中转",
+    "customs": "海关",
+    "immigration": "边检",
+    "hotline": "客服热线",
+    "customer service": "客服",
+    "flight": "航班",
+    "pregnant": "孕妇",
+}
+
+INTENT_TOKEN_RULES: dict[str, set[str]] = {
+    "cash": {"现金", "现钞", "人民币", "美元", "货币"},
+    "battery": {"充电宝", "锂电池", "电池", "wh", "瓦特小时"},
+    "ticket": {"婴儿票", "儿童票", "成人票", "机票"},
+}
+
+NORMALIZE_SYNONYM_MAP: dict[str, str] = {
+    "现钞": "现金",
+    "外币现钞": "外币现金",
+    "进境": "入境",
+    "出境": "离境",
+    "折合": "兑换",
+    "通关": "入境",
+    "客户服务热线": "客服热线",
+    "客户服务电话": "客服热线",
+    "客服电话": "客服热线",
+    "服务热线": "客服热线",
+    "客服号码": "客服热线",
+}
+
+TOPIC_KEYWORDS_MAP: dict[str, list[str]] = {
+    "departure": ["出发", "到达", "值机", "登机", "航站楼", "起飞", "departure", "arrival", "check-in", "boarding", "terminal"],
+    "customs": ["海关", "申报", "红通道", "绿通道", "进境", "出境", "征税", "customs", "declare", "declaration"],
+    "baggage": ["行李", "托运", "超重", "尺寸", "重量", "手提", "baggage", "luggage", "checked", "carry-on", "excess"],
+    "battery": ["充电宝", "锂电池", "电池", "wh", "瓦特小时", "毫安", "额定能量", "battery", "power bank", "lithium"],
+    "border": ["边防", "边检", "出入境", "港澳", "台湾", "通行证", "外国籍", "停留", "immigration", "border", "visa", "entry"],
+}
+
+TOPIC_ALIAS_MAP: dict[str, str] = {
+    "battery": "充电宝 锂电池 额定能量 wh 毫安",
+    "customs": "海关 申报 红通道 绿通道",
+    "baggage": "行李 托运 手提 尺寸 重量",
+    "departure": "出发 到达 值机 登机 航站楼",
+    "border": "边防 边检 出入境 港澳 台湾 通行证 外国籍 停留",
+}
+
+CONTACT_QUESTION_KEYWORDS: list[str] = [
+    "热线",
+    "电话",
+    "联系电话",
+    "联系方式",
+    "客服电话",
+    "客服",
+    "号码",
+    "怎么联系",
+    "hotline",
+    "customer service",
+    "contact",
+    "call center",
+    "phone",
+]
+
+COMPARE_QUESTION_KEYWORDS: list[str] = [
+    "区别",
+    "不同",
+    "一样",
+    "相同",
+    "近似",
+    "对比",
+    "分别",
+    "差异",
+    "difference",
+    "compare",
+    "similar",
+]
+
+SOURCE_POLICY_COMPARE_KEYWORDS: list[str] = [
+    "区别",
+    "不同",
+    "一样",
+    "相同",
+    "近似",
+    "对比",
+    "分别",
+    "各航司",
+    "各航空公司",
+    "difference",
+    "compare",
+    "similar",
+]
+
+BATTERY_AIRPORT_KEYWORDS: list[str] = ["充电宝", "锂电池", "额定能量", "wh", "瓦特小时"]
+DEPARTURE_AIRPORT_KEYWORDS: list[str] = ["国内出发", "国际出发", "出发", "值机", "航站楼", "登机"]
+
+AIRPORT_SCOPE_KEYWORDS: list[str] = [
+    "白云机场",
+    "机场规定",
+    "机场",
+    "航站楼",
+    "海关",
+    "边检",
+    "边防",
+    "入境卡",
+    "外国人入境",
+    "港澳居民",
+    "airport",
+    "terminal",
+    "customs",
+    "immigration",
+    "border control",
+]
+
+AIRLINE_SCOPE_KEYWORDS: list[str] = [
+    "航司",
+    "航空公司",
+    "承运人",
+    "机票",
+    "婴儿票",
+    "儿童票",
+    "退改签",
+    "行李额",
+    "客服",
+    "热线",
+    "客服电话",
+    "孕妇",
+    "妊娠",
+    "产后",
+    "分娩",
+    "轮椅",
+    "特殊旅客",
+    "airline",
+    "baggage",
+    "refund",
+    "rebook",
+    "ticket",
+    "customer service",
+    "hotline",
+]
+
+CARRIER_ALIAS_HINT_MAP: dict[str, str] = {
+    "南方": "南航",
+    "东方": "东航",
+    "国际": "国航",
+    "海南": "海航",
+    "深圳": "深航",
+    "厦门": "厦航",
+    "山东": "山航",
+    "春秋": "春秋",
+    "吉祥": "吉祥",
+    "emirates": "ek",
+    "china southern": "cz",
+    "china eastern": "mu",
+    "air china": "ca",
+    "spring airlines": "9c",
+}
+
+PRIORITY_RULE_BATTERY_KEYWORDS: list[str] = ["充电宝", "锂电池", "额定能量", "wh"]
+PRIORITY_RULE_DEPARTURE_TIME_KEYWORDS: list[str] = ["提前", "多久", "几小时", "什么时候", "几点"]
 
 
 @dataclass
@@ -21,6 +207,57 @@ def detect_question_language(question: str) -> str:
     if has_cjk:
         return "zh"
     return "zh"
+
+
+def is_priority_rule_question(question: str) -> bool:
+    q = (question or "").lower()
+    battery = any(k in q for k in PRIORITY_RULE_BATTERY_KEYWORDS)
+    departure_time = ("出发" in q and any(k in q for k in PRIORITY_RULE_DEPARTURE_TIME_KEYWORDS))
+    return battery or departure_time
+
+
+def expand_cross_lingual_query(question: str, extra_terms: Iterable[str] | None = None) -> str:
+    q = question or ""
+    q_lower = q.lower()
+
+    extra: list[str] = []
+    for zh, en in ZH_TO_EN_QUERY_MAP.items():
+        if zh in q:
+            extra.append(en)
+    for en, zh in EN_TO_ZH_QUERY_MAP.items():
+        if en in q_lower:
+            extra.append(zh)
+
+    if extra_terms:
+        extra.extend([term for term in extra_terms if term])
+
+    return q if not extra else f"{q} {' '.join(extra)}"
+
+
+def normalize_for_matching(text: str) -> str:
+    return _normalize_for_matching(text)
+
+
+def required_intent_tokens(normalized_question: str) -> set[str]:
+    return _required_intent_tokens(normalized_question)
+
+
+def infer_topics(text: str) -> set[str]:
+    lowered = text.lower()
+    topics: set[str] = set()
+    for topic, keywords in TOPIC_KEYWORDS_MAP.items():
+        if any(keyword in lowered for keyword in keywords):
+            topics.add(topic)
+    return topics
+
+
+def expand_question_with_topic_alias(question: str, topics: set[str]) -> str:
+    parts = [question]
+    for topic in topics:
+        alias = TOPIC_ALIAS_MAP.get(topic)
+        if alias:
+            parts.append(alias)
+    return " ".join(parts)
 
 
 def build_refund_rule_answer(question: str, retrieved: list[RetrievedChunk]) -> RuleResult | None:
@@ -397,52 +634,7 @@ def build_factoid_answer(question: str, retrieved: list[RetrievedChunk]) -> Rule
 
 
 def _expand_cross_lingual_query(question: str) -> str:
-    q = question or ""
-    q_lower = q.lower()
-
-    zh_to_en = {
-        "行李": "baggage luggage",
-        "托运": "check-in checked",
-        "随身": "carry-on cabin",
-        "退票": "refund",
-        "改签": "change rebook",
-        "值机": "check-in",
-        "中转": "transit transfer",
-        "海关": "customs",
-        "边检": "immigration border control",
-        "客服": "customer service hotline",
-        "热线": "hotline contact",
-        "航班": "flight",
-        "孕妇": "pregnant passenger",
-    }
-    en_to_zh = {
-        "baggage": "行李",
-        "luggage": "行李",
-        "checked": "托运",
-        "carry": "随身",
-        "refund": "退票",
-        "change": "改签",
-        "rebook": "改签",
-        "check-in": "值机",
-        "transit": "中转",
-        "transfer": "中转",
-        "customs": "海关",
-        "immigration": "边检",
-        "hotline": "客服热线",
-        "customer service": "客服",
-        "flight": "航班",
-        "pregnant": "孕妇",
-    }
-
-    extra: list[str] = []
-    for zh, en in zh_to_en.items():
-        if zh in q:
-            extra.append(en)
-    for en, zh in en_to_zh.items():
-        if en in q_lower:
-            extra.append(zh)
-
-    return q if not extra else f"{q} {' '.join(extra)}"
+    return expand_cross_lingual_query(question)
 
 
 def _extract_best_fact_sentence(question: str, retrieved: list[RetrievedChunk]) -> tuple[str, RetrievedChunk | None]:
@@ -915,29 +1107,12 @@ def _matches_cue_groups(text: str, cue_groups: list[set[str]]) -> bool:
 
 def _is_contact_question(question: str) -> bool:
     q = question.lower()
-    return any(
-        k in q
-        for k in [
-            "热线",
-            "电话",
-            "联系电话",
-            "联系方式",
-            "客服电话",
-            "客服",
-            "号码",
-            "怎么联系",
-            "hotline",
-            "customer service",
-            "contact",
-            "call center",
-            "phone",
-        ]
-    )
+    return any(k in q for k in CONTACT_QUESTION_KEYWORDS)
 
 
 def _is_compare_question(question: str) -> bool:
     q = question.lower()
-    return any(k in q for k in ["区别", "不同", "一样", "相同", "近似", "对比", "分别", "差异", "difference", "compare", "similar"])
+    return any(k in q for k in COMPARE_QUESTION_KEYWORDS)
 
 
 def _source_scope_and_carrier(item: RetrievedChunk) -> tuple[str, str]:
@@ -1166,20 +1341,7 @@ def _has_duration_fact(text: str) -> bool:
 
 def _normalize_for_matching(text: str) -> str:
     normalized = text.lower()
-    synonym_map = {
-        "现钞": "现金",
-        "外币现钞": "外币现金",
-        "进境": "入境",
-        "出境": "离境",
-        "折合": "兑换",
-        "通关": "入境",
-        "客户服务热线": "客服热线",
-        "客户服务电话": "客服热线",
-        "客服电话": "客服热线",
-        "服务热线": "客服热线",
-        "客服号码": "客服热线",
-    }
-    for src, dst in synonym_map.items():
+    for src, dst in NORMALIZE_SYNONYM_MAP.items():
         normalized = normalized.replace(src, dst)
     return normalized
 
@@ -1225,12 +1387,6 @@ def _required_content_tokens(normalized_question: str) -> set[str]:
 
 
 def _required_intent_tokens(normalized_question: str) -> set[str]:
-    rules = {
-        "cash": {"现金", "现钞", "人民币", "美元", "货币"},
-        "battery": {"充电宝", "锂电池", "电池", "wh", "瓦特小时"},
-        "ticket": {"婴儿票", "儿童票", "成人票", "机票"},
-    }
-
     intents: set[str] = set()
     if any(k in normalized_question for k in ["现金", "现钞", "人民币", "美元", "货币"]):
         intents.add("cash")
@@ -1244,7 +1400,7 @@ def _required_intent_tokens(normalized_question: str) -> set[str]:
 
     tokens: set[str] = set()
     for intent in intents:
-        tokens.update(rules[intent])
+        tokens.update(INTENT_TOKEN_RULES[intent])
     return tokens
 
 

@@ -435,15 +435,47 @@ def _build_battery_answer(question: str, retrieved: list[RetrievedChunk]) -> Rul
     if not evidence:
         return None
 
-    asked_wh = _extract_wh_value(question)
-    text_all = "\n".join(r.text.lower() for r in evidence)
+    def _battery_item_score(item: RetrievedChunk) -> tuple[int, float]:
+        joined = f"{item.source} {item.text}".lower()
+        score = 0
+        if "充电宝" in joined:
+            score += 8
+        if "锂电池" in joined:
+            score += 5
+        if "160wh" in joined or "160 wh" in joined:
+            score += 6
+        if re.search(r"(大于|超过|>|≥).{0,8}100\s*wh", joined):
+            score += 5
+        if re.search(r"(不超过|小于等于|<=|≤).{0,8}160\s*wh", joined):
+            score += 5
+        if re.search(r"(航空公司|承运人).{0,20}(同意|批准|许可)", joined):
+            score += 6
+        if "禁止作为行李托运" in joined:
+            score += 2
+        if "/airport/" in item.source.replace("\\", "/"):
+            score += 1
+        return score, -item.distance
 
-    forbid_over_100 = bool(re.search(r"超过\s*100\s*wh.{0,20}(禁止|严禁|不得|不能)", text_all))
-    forbid_over_160 = bool(re.search(r"超过\s*160\s*wh.{0,20}(禁止|严禁|不得|不能)", text_all))
-    allow_le_100 = bool(re.search(r"(小于|不超过|小于等于|≤).{0,6}100\s*wh", text_all))
+    evidence = sorted(evidence, key=_battery_item_score, reverse=True)
+
+    asked_wh = _extract_wh_value(question)
+    text_all = "\n".join(r.text.lower() for r in evidence[:8])
+
+    forbid_over_100 = bool(
+        re.search(r"(超过|大于|>|≥).{0,8}100\s*wh.{0,30}(禁止|严禁|不得|不能)", text_all)
+        or re.search(r"100\s*wh.{0,25}(以上|以上的).{0,20}(禁止|严禁|不得|不能)", text_all)
+    )
+    forbid_over_160 = bool(
+        re.search(r"(超过|大于|>|≥).{0,8}160\s*wh.{0,30}(禁止|严禁|不得|不能)", text_all)
+        or re.search(r"160\s*wh.{0,20}(以上|以上的).{0,20}(禁止|严禁|不得|不能)", text_all)
+    )
+    allow_le_100 = bool(re.search(r"(小于|不超过|小于等于|<=|≤).{0,8}100\s*wh", text_all))
     allow_100_160_with_approval = bool(
-        re.search(r"超过\s*100\s*wh.{0,30}不超过\s*160\s*wh", text_all)
-        and re.search(r"(航空公司).{0,12}(同意|批准)", text_all)
+        (
+            re.search(r"(超过|大于|>|≥).{0,8}100\s*wh.{0,40}(不超过|小于等于|<=|≤).{0,8}160\s*wh", text_all)
+            or re.search(r"100\s*wh.{0,40}160\s*wh", text_all)
+        )
+        and re.search(r"(航空公司|承运人).{0,20}(同意|批准|许可)", text_all)
     )
 
     conclusion = "需人工复核。"
@@ -847,7 +879,9 @@ def _source_scope_and_carrier(item: RetrievedChunk) -> tuple[str, str]:
             folder = parts[idx + 1]
             if folder.lower() == "airport":
                 return "airport", ""
-            return "airline", folder.upper()
+            if re.fullmatch(r"[A-Za-z0-9]{2}", folder):
+                return "airline", folder.upper()
+            return "airport", ""
     return "unknown", ""
 
 

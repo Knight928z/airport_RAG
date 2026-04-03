@@ -60,6 +60,16 @@ def test_source_policy_routes_airline_only_question() -> None:
     assert p.required_scope == "airline"
 
 
+def test_source_policy_routes_battery_question_to_airport() -> None:
+    p = _build_source_policy("我的充电宝150Wh能带吗？")
+    assert p.required_scope == "airport"
+
+
+def test_source_policy_routes_departure_time_question_to_airport() -> None:
+    p = _build_source_policy("国内出发需要提前多久到达？")
+    assert p.required_scope == "airport"
+
+
 def test_source_policy_compare_question_not_hard_limited() -> None:
     p = _build_source_policy("机场和航司行李规定有什么区别？")
     assert p.required_scope is None

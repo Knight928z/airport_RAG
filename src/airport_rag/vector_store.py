@@ -59,7 +59,12 @@ class ChromaStore:
             if self._is_dimension_mismatch(exc):
                 self._recreate_collection()
                 return []
-            raise
+            if self._is_hnsw_query_instability(exc):
+                result = self._retry_query_with_fallback(query_embedding, n_results, where)
+                if result is None:
+                    return []
+            else:
+                raise
         ids = result.get("ids", [[]])[0]
         docs = result.get("documents", [[]])[0]
         metas = result.get("metadatas", [[]])[0]
@@ -87,6 +92,35 @@ class ChromaStore:
 
     def _is_dimension_mismatch(self, exc: Exception) -> bool:
         return "does not match collection dimensionality" in str(exc).lower()
+
+    def _is_hnsw_query_instability(self, exc: Exception) -> bool:
+        text = str(exc).lower()
+        return "contigious 2d array" in text or "contiguous 2d array" in text or "ef or m is too small" in text
+
+    def _retry_query_with_fallback(self, query_embedding: list[float], n_results: int, where: dict | None) -> dict | None:
+        attempts = []
+        for candidate_k in [n_results, min(n_results, 20), min(n_results, 10), min(n_results, 5), 1]:
+            if candidate_k > 0:
+                attempts.append((candidate_k, where))
+        if where is not None:
+            for candidate_k in [min(n_results, 20), min(n_results, 10), min(n_results, 5), 1]:
+                if candidate_k > 0:
+                    attempts.append((candidate_k, None))
+
+        seen = set()
+        for candidate_k, candidate_where in attempts:
+            key = (candidate_k, str(candidate_where))
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                kwargs = {"query_embeddings": [query_embedding], "n_results": candidate_k}
+                if candidate_where:
+                    kwargs["where"] = candidate_where
+                return self._collection.query(**kwargs)
+            except Exception:
+                continue
+        return None
 
     def _recreate_collection(self) -> None:
         try:

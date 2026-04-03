@@ -171,6 +171,11 @@ class AirportRAGService:
                 evidence_chunk_ids=refund_rule.evidence_chunk_ids,
             )
 
+        if _is_priority_rule_question(question):
+            priority_rule = _build_rule_based_answer(question, candidates)
+            if priority_rule is not None:
+                return priority_rule
+
         grounding = _select_grounded_evidence(question, candidates)
         grounded = grounding.evidence
 
@@ -273,6 +278,13 @@ class AirportRAGService:
             note="retrieval-extractive",
             evidence_chunk_ids=[r.chunk_id for r in grounded[:3]],
         )
+
+
+def _is_priority_rule_question(question: str) -> bool:
+    q = (question or "").lower()
+    battery = any(k in q for k in ["充电宝", "锂电池", "额定能量", "wh"])
+    departure_time = ("出发" in q and any(k in q for k in ["提前", "多久", "几小时", "什么时候", "几点"]))
+    return battery or departure_time
 
 
 def _detect_question_language(question: str) -> str:
@@ -938,7 +950,9 @@ def _source_scope_and_carrier(item: RetrievedChunk) -> tuple[str, str]:
             folder = parts[idx + 1]
             if folder.lower() == "airport":
                 return "airport", ""
-            return "airline", folder.upper()
+            if re.fullmatch(r"[A-Za-z0-9]{2}", folder):
+                return "airline", folder.upper()
+            return "airport", ""
     return "unknown", ""
 
 
@@ -964,6 +978,13 @@ def _build_source_policy(question: str) -> _SourcePolicy:
     code = _resolve_carrier_code_from_question(question)
     if code:
         return _SourcePolicy(required_scope="airline", required_carrier=code, preferred_scope="airline")
+
+    battery_airport_keywords = ["充电宝", "锂电池", "额定能量", "wh", "瓦特小时"]
+    departure_airport_keywords = ["国内出发", "国际出发", "出发", "值机", "航站楼", "登机"]
+    if any(k in q for k in battery_airport_keywords):
+        return _SourcePolicy(required_scope="airport", preferred_scope="airport")
+    if any(k in q for k in departure_airport_keywords) and any(k in q for k in ["提前", "多久", "几小时", "什么时候", "几点"]):
+        return _SourcePolicy(required_scope="airport", preferred_scope="airport")
 
     airport_keywords = [
         "白云机场",

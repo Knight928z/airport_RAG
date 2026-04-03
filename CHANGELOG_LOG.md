@@ -2,6 +2,16 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-03 08:10:57 +0800
+
+- 提交：`fix(rag): improve airport routing and vector query fallback stability`
+- 变更文件：
+  - `src/airport_rag/rules.py`
+  - `src/airport_rag/service.py`
+  - `src/airport_rag/vector_store.py`
+  - `tests/test_service_rerank.py`
+- 备注：修复国内出发与150Wh问答准确性并提升检索容错
+
 ## 2026-04-03 07:53:39 +0800
 
 - 提交：`feat(feedback): add rating/correction loop and uncovered-question logging`

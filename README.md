@@ -3,6 +3,7 @@
 一个面向机场业务文档的中文 RAG（检索增强生成）助手：
 
 - 支持文档入库：PDF / Markdown / TXT / 无后缀纯文本文档（如 `出发指南-国内出发`）
+- 支持图片文档 OCR 入库：PNG / JPG / JPEG / WEBP / TIFF / BMP（管理端批量上传后自动生成 OCR 文本侧车文件）
 - 基于 Chroma 的向量检索
 - 使用 LangChain 增强语义切分与问答生成链路
 - 回答自带可追溯引用
@@ -78,6 +79,7 @@
 - `GET /admin/tree`：目录树视图数据（用于树形浏览）
 - `GET /admin/search?q=...`：关键词搜索（路径 + 内容片段）
 - `POST /admin/docs/bulk`：批量上传（支持拖拽上传，多文件自动分类）
+  - 当上传图片文件时，会自动执行 OCR，并生成同目录侧车文本：`<原文件名>.ocr.md`，该文本会参与后续检索与问答。
 
 补丁治理 API：
 
@@ -108,6 +110,8 @@ docker compose up -d --build
 
 - 普通前端：`http://127.0.0.1:8000/app`
 - 管理前端：`http://127.0.0.1:8000/admin`
+
+> OCR 说明：Docker 运行已内置 `tesseract-ocr` 与 `chi_sim` 中文语言包；本地裸机运行请确保系统可用 Tesseract（并建议安装中文语言包）。
 
 停止：
 

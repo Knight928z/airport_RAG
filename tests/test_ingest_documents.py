@@ -66,3 +66,16 @@ def test_ingest_path_sets_scope_metadata_from_documents_hierarchy(tmp_path) -> N
     scopes = {(meta.get("doc_scope"), meta.get("carrier")) for meta in store.last_metadatas}
     assert ("airport", "") in scopes
     assert ("airline", "CZ") in scopes
+
+
+def test_load_documents_supports_image_ocr(monkeypatch, tmp_path) -> None:
+    img = tmp_path / "安检提醒.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    monkeypatch.setattr("airport_rag.ingest.extract_text_from_image", lambda _p: "图片OCR文本")
+
+    docs = load_documents(str(tmp_path))
+
+    assert len(docs) == 1
+    assert docs[0].source.endswith("安检提醒.png")
+    assert "OCR" in docs[0].text

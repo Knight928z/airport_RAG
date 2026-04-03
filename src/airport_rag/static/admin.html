@@ -111,7 +111,7 @@
             <div id="dropzone" style="border:2px dashed #cfd9ff;border-radius:8px;padding:16px;text-align:center;background:#fbfdff;">将文件拖拽到此处，或点击选择
               <input id="bulk-input" type="file" multiple style="display:none;" />
             </div>
-            <p class="tiny">上传后会尝试自动分类到 airport 或 对应航司目录，勾选“修改后自动同步入库”将触发立即入库。</p>
+            <p class="tiny">上传后会尝试自动分类到 airport 或 对应航司目录；图片文件会自动 OCR 并生成 <code>.ocr.md</code> 文本侧车，勾选“修改后自动同步入库”将触发立即入库。</p>
           </div>
 
           <div id="status" class="status"></div>
@@ -360,7 +360,13 @@
         if (!res.ok) { setStatus(data.detail || '上传失败', true); return; }
         setStatus(`上传完成：${data.created.length} 个，错误 ${data.errors.length}`);
         if (Array.isArray(data.created) && data.created.length > 0) {
-          showSearchResults(data.created.map((it) => ({ path: it.path, snippet: it.binary ? '二进制文件已上传' : '文本文件已上传' })));
+          showSearchResults(data.created.map((it) => {
+            let snippet = it.binary ? '二进制文件已上传' : '文本文件已上传';
+            if (it.ocr_text_path) {
+              snippet += ` ｜ 已OCR：${it.ocr_chars || 0} 字，文本文件：${it.ocr_text_path}`;
+            }
+            return { path: it.path, snippet };
+          }));
         }
         await refreshList();
         if (searchQEl.value && searchQEl.value.trim().length > 0) {

@@ -11,6 +11,7 @@ from .vector_store import ChromaStore
 
 
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".pdf"}
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
 
 
 @dataclass
@@ -72,15 +73,41 @@ def load_documents(path: str) -> list[RawDoc]:
                     )
             except Exception:
                 continue
+        elif ext in IMAGE_EXTENSIONS:
+            text = extract_text_from_image(file_path)
+            if text:
+                docs.append(RawDoc(text=text, source=str(file_path)))
     return docs
 
 
 def _is_supported_file(file_path: pathlib.Path) -> bool:
     if file_path.suffix.lower() in SUPPORTED_EXTENSIONS:
         return True
+    if file_path.suffix.lower() in IMAGE_EXTENSIONS:
+        return True
     if file_path.suffix == "" and not file_path.name.startswith("."):
         return True
     return False
+
+
+def extract_text_from_image(file_path: pathlib.Path | str) -> str:
+    path = pathlib.Path(file_path)
+    try:
+        import pytesseract
+        from PIL import Image
+    except Exception:
+        return ""
+
+    try:
+        with Image.open(path) as img:
+            rgb = img.convert("RGB")
+            text = pytesseract.image_to_string(rgb, lang="chi_sim+eng")
+            if text and text.strip():
+                return text
+            text = pytesseract.image_to_string(rgb)
+            return text or ""
+    except Exception:
+        return ""
 
 
 def _read_text_file(file_path: pathlib.Path) -> str:

@@ -2,6 +2,20 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-04 07:57:27 +0800
+
+- 提交：`feat(admin): add OCR support for image document ingestion`
+- 变更文件：
+  - `Dockerfile`
+  - `README.md`
+  - `requirements.txt`
+  - `src/airport_rag/api.py`
+  - `src/airport_rag/ingest.py`
+  - `src/airport_rag/static/admin.html`
+  - `tests/test_admin_ocr_upload.py`
+  - `tests/test_ingest_documents.py`
+- 备注：admin批量上传支持图片OCR，自动生成.ocr.md侧车文本并参与检索；ingest新增图片解析链路；Docker安装tesseract中文包并补测试与README说明
+
 ## 2026-04-03 09:58:42 +0800
 
 - 提交：`refactor(patches): move patch storage to data/patches root`

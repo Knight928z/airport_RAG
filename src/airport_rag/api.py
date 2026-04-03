@@ -25,6 +25,7 @@ from .schemas import (
     IngestResponse,
 )
 from .service import AirportRAGService
+from .ingest import extract_text_from_image
 
 
 app = FastAPI(title="Airport KB RAG Assistant", version="1.0.0")
@@ -757,6 +758,10 @@ def _is_likely_text_file(path: Path) -> bool:
     return path.suffix.lower() in text_exts or path.suffix == ""
 
 
+def _is_image_file(path: Path) -> bool:
+    return path.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
+
+
 def _guess_media_type(path: Path) -> str:
     media_type, _ = mimetypes.guess_type(str(path))
     return media_type or "application/octet-stream"
@@ -861,11 +866,27 @@ def admin_bulk_upload(files: List[UploadFile] = File(...), auto_sync: bool = For
                 target.write_text(content, encoding="utf-8")
             else:
                 target.write_bytes(body)
+
+            ocr_text_path = None
+            ocr_chars = 0
+            if _is_image_file(target):
+                ocr_text = extract_text_from_image(target).strip()
+                if ocr_text:
+                    ocr_target = _safe_doc_path(f"{folder}/{fname}.ocr.md")
+                    ocr_target.write_text(
+                        f"# OCR 文本：{fname}\n\n{ocr_text}\n",
+                        encoding="utf-8",
+                    )
+                    ocr_text_path = ocr_target.relative_to(DOC_ROOT).as_posix()
+                    ocr_chars = len(ocr_text)
+
             created.append(
                 {
                     "path": target.relative_to(DOC_ROOT).as_posix(),
                     "carrier": carrier,
                     "binary": not is_text,
+                    "ocr_text_path": ocr_text_path,
+                    "ocr_chars": ocr_chars,
                 }
             )
         except Exception as exc:

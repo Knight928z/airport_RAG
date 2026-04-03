@@ -2,6 +2,15 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-03 09:17:48 +0800
+
+- 提交：`fix(rules): improve accuracy for 8 key passenger policy questions`
+- 变更文件：
+  - `src/airport_rag/rules.py`
+  - `src/airport_rag/service.py`
+  - `tests/test_service_rerank.py`
+- 备注：新增保险退保专项规则、文档直读兜底、意图检索回退与多场景规则，修复军残票/公务舱行李/9C餐食与保险/旅游团入境/国内液体/锂电池托运/机场热线问答准确性
+
 ## 2026-04-03 08:36:34 +0800
 
 - 提交：`refactor(rules): centralize maps keywords and hints from service`

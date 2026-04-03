@@ -17,7 +17,7 @@ from airport_rag.service import (
     _intent_compatible,
     _rerank_retrieved,
 )
-from airport_rag.rules import build_refund_rule_answer
+from airport_rag.rules import build_refund_rule_answer, build_ticket_insurance_refund_answer
 from airport_rag.vector_store import RetrievedChunk
 
 
@@ -327,6 +327,153 @@ def test_rule_based_answer_for_business_class_baggage_allowance() -> None:
     assert ans is not None
     assert "30公斤" in ans.answer
     assert "人民币400元" not in ans.answer
+
+
+def test_rule_based_answer_for_disabled_veteran_ticket_benefit() -> None:
+    retrieved = [
+        RetrievedChunk(
+            chunk_id="ap-military-1",
+            text="军残票票价按照同一航班成人普通全票价的50％购买。",
+            source="/data/documents/airport/机票办理指南",
+            page=None,
+            distance=0.1,
+        ),
+        RetrievedChunk(
+            chunk_id="ap-military-2",
+            text="如果您持有《残疾军人证》，可以直接拨打航空公司的热线电话预定机票。",
+            source="/data/documents/airport/机票办理指南",
+            page=None,
+            distance=0.2,
+        ),
+    ]
+
+    ans = _build_rule_based_answer("有残疾军人证有什么优待吗？", retrieved)
+
+    assert ans is not None
+    assert "50" in ans.answer
+    assert "残疾军人证" in ans.answer
+
+
+def test_ticket_insurance_refund_rule_for_9c() -> None:
+    retrieved = [
+        RetrievedChunk(
+            chunk_id="9c-ins-1",
+            text="机票退票险购买后不支持退保，其余保险退保规定如下：旅客办理退票时，春秋航空所销售的保险可同机票一起退款。",
+            source="/data/documents/9C/旅客须知",
+            page=None,
+            distance=0.1,
+            doc_scope="airline",
+            carrier="9C",
+        )
+    ]
+
+    ans = build_ticket_insurance_refund_answer("9C退票时保险能退吗？", retrieved)
+
+    assert ans is not None
+    assert "保险" in ans.answer
+    assert "退款" in ans.answer
+
+
+def test_generic_refund_rule_skips_insurance_refund_question() -> None:
+    retrieved = [
+        RetrievedChunk(
+            chunk_id="9c-ins-2",
+            text="机票退票险购买后不支持退保，其余保险可同机票一起退款。",
+            source="/data/documents/9C/旅客须知",
+            page=None,
+            distance=0.1,
+        )
+    ]
+
+    ans = build_refund_rule_answer("9C退票时保险能退吗？", retrieved)
+
+    assert ans is None
+
+
+def test_rule_based_answer_for_9c_free_meal_policy() -> None:
+    retrieved = [
+        RetrievedChunk(
+            chunk_id="9c-meal-1",
+            text="除部分航班的尊享飞产品外，春秋航空不提供免费的餐饮。航班上将有偿提供多种餐食、饮料。",
+            source="/data/documents/9C/旅客须知",
+            page=None,
+            distance=0.1,
+            doc_scope="airline",
+            carrier="9C",
+        )
+    ]
+
+    ans = _build_rule_based_answer("9C有免费餐食吗？", retrieved)
+
+    assert ans is not None
+    assert "不提供免费的餐饮" in ans.answer
+
+
+def test_rule_based_answer_for_foreign_tour_group_entry_documents() -> None:
+    retrieved = [
+        RetrievedChunk(
+            chunk_id="ap-border-1",
+            text="外国旅游团入境时，应向边检机关交验护照、团体旅游签证名单表原件和复印件。",
+            source="/data/documents/airport/边防检查须知",
+            page=None,
+            distance=0.1,
+            doc_scope="airport",
+            carrier="",
+        ),
+        RetrievedChunk(
+            chunk_id="ap-depart-1",
+            text="外国旅客须填写《外国人离境卡》（中国人无需填写）。",
+            source="/data/documents/airport/出发指南-国际出发",
+            page=None,
+            distance=0.2,
+            doc_scope="airport",
+            carrier="",
+        ),
+    ]
+
+    ans = _build_rule_based_answer("外国旅游团入境需要带什么？", retrieved)
+
+    assert ans is not None
+    assert "交验护照" in ans.answer
+    assert "团体旅游签证名单表" in ans.answer
+
+
+def test_rule_based_answer_for_domestic_flight_liquid_policy() -> None:
+    retrieved = [
+        RetrievedChunk(
+            chunk_id="ap-liquid-1",
+            text="旅客乘坐国内航班时，液态物品禁止随身携带（航空旅行途中自用的化妆品、牙膏及剃须膏除外）。",
+            source="/data/documents/airport/民航旅客限制随身携带或托运物品目录",
+            page=None,
+            distance=0.1,
+            doc_scope="airport",
+            carrier="",
+        )
+    ]
+
+    ans = _build_rule_based_answer("国内航班能携带液体吗？", retrieved)
+
+    assert ans is not None
+    assert "一般不能随身携带" in ans.answer
+
+
+def test_rule_based_answer_for_checked_lithium_battery() -> None:
+    retrieved = [
+        RetrievedChunk(
+            chunk_id="ap-battery-checked-1",
+            text="充电宝、锂电池禁止作为行李托运，随身携带时有以下限定条件。",
+            source="/data/documents/airport/民航旅客限制随身携带或托运物品目录",
+            page=None,
+            distance=0.1,
+            doc_scope="airport",
+            carrier="",
+        )
+    ]
+
+    ans = _build_rule_based_answer("可以托运锂电池吗？", retrieved)
+
+    assert ans is not None
+    assert "不能托运" in ans.answer or "禁止作为行李托运" in ans.answer
 
 
 def test_rule_based_answer_for_infant_ticket_age_question() -> None:

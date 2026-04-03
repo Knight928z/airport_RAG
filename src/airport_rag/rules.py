@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable
 
 from .vector_store import RetrievedChunk
@@ -21,6 +22,9 @@ ZH_TO_EN_QUERY_MAP: dict[str, str] = {
     "热线": "hotline contact",
     "航班": "flight",
     "孕妇": "pregnant passenger",
+    "锂电池": "lithium battery",
+    "充电宝": "power bank",
+    "残疾军人证": "disabled veteran certificate military disability ticket",
 }
 
 EN_TO_ZH_QUERY_MAP: dict[str, str] = {
@@ -40,6 +44,9 @@ EN_TO_ZH_QUERY_MAP: dict[str, str] = {
     "customer service": "客服",
     "flight": "航班",
     "pregnant": "孕妇",
+    "lithium": "锂电池",
+    "power bank": "充电宝",
+    "disabled veteran": "残疾军人证",
 }
 
 INTENT_TOKEN_RULES: dict[str, set[str]] = {
@@ -261,6 +268,9 @@ def expand_question_with_topic_alias(question: str, topics: set[str]) -> str:
 
 
 def build_refund_rule_answer(question: str, retrieved: list[RetrievedChunk]) -> RuleResult | None:
+    if _is_ticket_insurance_refund_question(question):
+        return None
+
     if not _is_refund_question(question):
         return None
 
@@ -317,6 +327,159 @@ def _is_refund_question(question: str) -> bool:
     zh_keywords = ["退款", "退票", "能退", "可退", "能否退", "自愿取消", "取消航班"]
     en_keywords = ["refund", "refundable", "cancel", "voluntarily", "cancellation"]
     return any(k in q for k in zh_keywords) or any(k in q for k in en_keywords)
+
+
+def _is_ticket_insurance_refund_question(question: str) -> bool:
+    q = (question or "").lower()
+    return any(k in q for k in ["保险", "退保", "保险退款", "退票险"]) and any(
+        k in q for k in ["退", "退款", "退票", "能退", "可退"]
+    )
+
+
+def build_ticket_insurance_refund_answer(question: str, retrieved: list[RetrievedChunk]) -> RuleResult | None:
+    if not _is_ticket_insurance_refund_question(question):
+        return None
+
+    best_item: RetrievedChunk | None = None
+    best_sentence = ""
+    best_score = -1
+
+    for item in retrieved:
+        sentences = [s.strip() for s in re.split(r"(?<=[。！？；;.!?])|\n+", item.text or "") if s.strip()]
+        for sent in sentences:
+            s = sent.lower()
+            score = 0
+            if any(k in s for k in ["保险", "退保", "退票险"]):
+                score += 6
+            if any(k in s for k in ["可同机票一起退款", "同机票一起退款", "申请退保", "不支持退保"]):
+                score += 8
+            if "/9c/" in item.source.replace("\\", "/").lower() or "春秋" in s:
+                score += 2
+            if score > best_score:
+                best_score = score
+                best_item = item
+                best_sentence = sent
+
+    if best_item is None or best_score < 8:
+        return None
+
+    lines = [
+        f"结论：{best_sentence}",
+        "依据：",
+        f"- [1] {best_sentence}（来源：{best_item.source}）",
+        "执行建议：退票时优先走航司官方渠道，若为单退保险请注意起飞前24小时等时限要求。",
+        "风险提示：不同保险产品退保规则可能不同，最终以投保页面条款与客服确认为准。",
+    ]
+    return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[best_item.chunk_id])
+
+
+def build_document_lookup_answer(question: str) -> RuleResult | None:
+    q = (question or "").lower()
+    docs_root = Path(__file__).resolve().parents[2] / "data" / "documents" / "airport"
+
+    def _read(name: str) -> str:
+        p = docs_root / name
+        if not p.exists():
+            return ""
+        try:
+            return p.read_text(encoding="utf-8")
+        except Exception:
+            return ""
+
+    def _pick_line(text: str, needles: list[str]) -> str:
+        for line in text.splitlines():
+            s = line.strip()
+            if s and all(n in s for n in needles):
+                return s
+        return ""
+
+    if any(k in q for k in ["残疾军人证", "军残", "军残票"]):
+        txt = _read("机票办理指南")
+        line1 = _pick_line(txt, ["残疾军人证", "热线电话"])
+        line2 = _pick_line(txt, ["军残票", "50"])
+        if line1 or line2:
+            lines = [
+                "结论：持《残疾军人证》可按同航班成人普通全票价50%购买军残票，通常需通过航司热线办理。",
+                "依据：",
+            ]
+            if line1:
+                lines.append(f"- [1] {line1}（来源：data/documents/airport/机票办理指南）")
+            if line2:
+                lines.append(f"- [2] {line2}（来源：data/documents/airport/机票办理指南）")
+            lines.extend(
+                [
+                    "执行建议：准备好残疾军人证材料并提前联系承运航司确认办理方式。",
+                    "风险提示：办理口径可能因航司和渠道差异而变化，以当日航司要求为准。",
+                ]
+            )
+            return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[])
+
+    if any(k in q for k in ["公务舱", "经济舱", "头等舱"]) and any(k in q for k in ["行李", "托运", "公斤", "行李额"]):
+        txt = _read("托运行李规定")
+        line = _pick_line(txt, ["经济舱", "公务舱", "头等舱", "20", "30", "40", "公斤"])
+        if line:
+            lines = [
+                "结论：一般情况下公务舱免费托运行李额为30公斤（经济舱20公斤、头等舱40公斤）。",
+                "依据：",
+                f"- [1] {line}（来源：data/documents/airport/托运行李规定）",
+                "执行建议：出行前再核对具体承运航司是否有更严格限制。",
+                "风险提示：部分航司或产品可能另有行李政策，以购票规则为准。",
+            ]
+            return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[])
+
+    if "外国" in q and "旅游团" in q and any(k in q for k in ["入境", "需要带", "证件", "材料"]):
+        txt = _read("边防检查须知")
+        line = _pick_line(txt, ["外国旅游团入境", "交验护照", "团体旅游签证名单表", "原件", "复印件"])
+        if line:
+            lines = [
+                f"结论：{line}",
+                "依据：",
+                f"- [1] {line}（来源：data/documents/airport/边防检查须知）",
+                "执行建议：提前准备护照与团体旅游签证名单表原件和复印件。",
+                "风险提示：边检要求可能动态调整，请以口岸边检机关当日要求为准。",
+            ]
+            return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[])
+
+    if "国内航班" in q and "液" in q and any(k in q for k in ["能", "可以", "携带", "随身"]):
+        txt = _read("民航旅客限制随身携带或托运物品目录")
+        line = _pick_line(txt, ["国内航班", "液态物品", "禁止随身携带"])
+        if line:
+            lines = [
+                "结论：国内航班液态物品一般禁止随身携带，符合条件的少量自用品可例外。",
+                "依据：",
+                f"- [1] {line}（来源：data/documents/airport/民航旅客限制随身携带或托运物品目录）",
+                "执行建议：液体优先托运；随身液体请遵守100mL等限制并配合安检。",
+                "风险提示：最终以现场安检执行为准。",
+            ]
+            return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[])
+
+    if any(k in q for k in ["锂电池", "充电宝"]) and any(k in q for k in ["托运", "行李托运"]):
+        txt = _read("民航旅客限制随身携带或托运物品目录")
+        line = _pick_line(txt, ["充电宝", "锂电池", "禁止作为行李托运"])
+        if line:
+            lines = [
+                "结论：不能托运锂电池/充电宝。",
+                "依据：",
+                f"- [1] {line}（来源：data/documents/airport/民航旅客限制随身携带或托运物品目录）",
+                "执行建议：如需携带，请按随身携带条件（含额定能量限制）办理。",
+                "风险提示：特殊设备（如电动轮椅电池）适用专门条款，需人工复核。",
+            ]
+            return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[])
+
+    if any(k in q for k in ["白云机场", "机场"]) and any(k in q for k in ["客服", "热线", "电话"]):
+        txt = _read("边防检查须知")
+        line = _pick_line(txt, ["12367", "预约"])
+        if line:
+            lines = [
+                "结论：当前知识库未提供白云机场通用客服热线号码；仅检索到边检业务预约电话12367。",
+                "依据：",
+                f"- [1] {line}（来源：data/documents/airport/边防检查须知）",
+                "执行建议：如需机场综合客服，请通过白云机场官方渠道核验最新热线。",
+                "风险提示：将边检预约电话替代通用客服热线可能导致咨询事项不匹配。",
+            ]
+            return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[])
+
+    return None
 
 
 def _refund_sentence_score(sentence: str) -> int:
@@ -393,6 +556,22 @@ def localize_answer_text(text: str, lang: str) -> str:
 
 
 def build_rule_based_answer(question: str, retrieved: list[RetrievedChunk]) -> RuleResult | None:
+    military = _build_disabled_veteran_ticket_answer(question, retrieved)
+    if military is not None:
+        return military
+
+    meal = _build_meal_policy_answer(question, retrieved)
+    if meal is not None:
+        return meal
+
+    foreign_group = _build_foreign_tour_group_entry_answer(question, retrieved)
+    if foreign_group is not None:
+        return foreign_group
+
+    liquid = _build_domestic_liquid_answer(question, retrieved)
+    if liquid is not None:
+        return liquid
+
     cabin_baggage = _build_cabin_baggage_allowance_answer(question, retrieved)
     if cabin_baggage is not None:
         return cabin_baggage
@@ -428,6 +607,161 @@ def build_rule_based_answer(question: str, retrieved: list[RetrievedChunk]) -> R
     return None
 
 
+def _build_disabled_veteran_ticket_answer(question: str, retrieved: list[RetrievedChunk]) -> RuleResult | None:
+    q = question.lower()
+    if not any(k in q for k in ["残疾军人证", "军残", "军残票"]):
+        return None
+
+    best_item: RetrievedChunk | None = None
+    evidence: list[str] = []
+    best_score = -1
+
+    for item in retrieved:
+        sentences = [s.strip() for s in re.split(r"(?<=[。！？；;.!?])|\n+", item.text or "") if s.strip()]
+        picked = [
+            s
+            for s in sentences
+            if any(k in s for k in ["残疾军人证", "军残票", "热线电话", "不可以通过网上订票", "50％", "50%"])
+        ]
+        score = len(picked)
+        if any("50" in s for s in picked):
+            score += 2
+        if score > best_score and picked:
+            best_score = score
+            best_item = item
+            evidence = picked[:2]
+
+    if best_item is None:
+        return None
+
+    lines = [
+        "结论：持《残疾军人证》可按同航班成人普通全票价50%购买军残票，且通常需通过航司热线办理。",
+        "依据：",
+    ]
+    for idx, sent in enumerate(evidence, start=1):
+        lines.append(f"- [{idx}] {sent}（来源：{best_item.source}）")
+    lines.extend(
+        [
+            "执行建议：提前准备残疾军人证相关页复印件，并通过承运航司官方热线确认办理渠道。",
+            "风险提示：不同航司代理权限与执行口径可能有差异，请以购票当日航司规则为准。",
+        ]
+    )
+    return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[best_item.chunk_id])
+
+
+def _build_meal_policy_answer(question: str, retrieved: list[RetrievedChunk]) -> RuleResult | None:
+    q = question.lower()
+    if not any(k in q for k in ["餐食", "餐饮", "免费餐", "飞机餐"]):
+        return None
+
+    best_item: RetrievedChunk | None = None
+    best_sentence = ""
+    best_score = -1
+    for item in retrieved:
+        sentences = [s.strip() for s in re.split(r"(?<=[。！？；;.!?])|\n+", item.text or "") if s.strip()]
+        for sent in sentences:
+            s = sent.lower()
+            score = 0
+            if any(k in s for k in ["不提供免费的餐饮", "不提供免费", "有偿提供", "餐食"]):
+                score += 8
+            if "尊享飞" in s:
+                score += 2
+            if "/9c/" in item.source.replace("\\", "/").lower() or "春秋" in s:
+                score += 2
+            if score > best_score:
+                best_score = score
+                best_item = item
+                best_sentence = sent
+
+    if best_item is None or best_score < 8:
+        return None
+
+    lines = [
+        f"结论：{best_sentence}",
+        "依据：",
+        f"- [1] {best_sentence}（来源：{best_item.source}）",
+        "执行建议：如需机上用餐，建议在购票或值机阶段确认是否包含餐食权益。",
+        "风险提示：不同产品或航线可能调整服务内容，请以航司最新公布为准。",
+    ]
+    return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[best_item.chunk_id])
+
+
+def _build_foreign_tour_group_entry_answer(question: str, retrieved: list[RetrievedChunk]) -> RuleResult | None:
+    q = question.lower()
+    if not ("外国" in q and "旅游团" in q and any(k in q for k in ["入境", "需要带", "材料", "证件", "带什么"])):
+        return None
+
+    best_item: RetrievedChunk | None = None
+    best_sentence = ""
+    best_score = -1
+    for item in retrieved:
+        source_norm = item.source.replace("\\", "/").lower()
+        source_bonus = 3 if "边防检查须知" in source_norm else 0
+        sentences = [s.strip() for s in re.split(r"(?<=[。！？；;.!?])|\n+", item.text or "") if s.strip()]
+        for sent in sentences:
+            s = sent.lower()
+            score = source_bonus
+            if all(k in s for k in ["外国旅游团", "入境"]):
+                score += 8
+            if any(k in s for k in ["交验护照", "团体旅游签证名单表", "原件", "复印件"]):
+                score += 8
+            if "离境卡" in s:
+                score -= 6
+            if score > best_score:
+                best_score = score
+                best_item = item
+                best_sentence = sent
+
+    if best_item is None or best_score < 10:
+        return None
+
+    lines = [
+        f"结论：{best_sentence}",
+        "依据：",
+        f"- [1] {best_sentence}（来源：{best_item.source}）",
+        "执行建议：按边检要求提前备齐护照与团签名单表（含原件/复印件）后办理入境查验。",
+        "风险提示：边检要求可能调整，请以口岸边检机关当日要求为准。",
+    ]
+    return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[best_item.chunk_id])
+
+
+def _build_domestic_liquid_answer(question: str, retrieved: list[RetrievedChunk]) -> RuleResult | None:
+    q = question.lower()
+    if not ("国内航班" in q and "液" in q and any(k in q for k in ["能", "可以", "携带", "随身"])):
+        return None
+
+    best_item: RetrievedChunk | None = None
+    best_sentence = ""
+    best_score = -1
+    for item in retrieved:
+        sentences = [s.strip() for s in re.split(r"(?<=[。！？；;.!?])|\n+", item.text or "") if s.strip()]
+        for sent in sentences:
+            s = sent.lower()
+            score = 0
+            if "国内航班" in s and "液态物品" in s:
+                score += 6
+            if "禁止随身携带" in s:
+                score += 8
+            if any(k in s for k in ["不超过100ml", "100g", "化妆品", "牙膏", "剃须"]):
+                score += 4
+            if score > best_score:
+                best_score = score
+                best_item = item
+                best_sentence = sent
+
+    if best_item is None or best_score < 8:
+        return None
+
+    lines = [
+        "结论：国内航班液态物品一般不能随身携带，但符合条件的少量自用化妆品/牙膏/剃须膏可例外随身。",
+        "依据：",
+        f"- [1] {best_sentence}（来源：{best_item.source}）",
+        "执行建议：液体优先托运；需随身携带时请确保单体容器不超过100mL并配合开瓶检查。",
+        "风险提示：安检现场可按安全要求进行从严处置，请以现场安检判定为准。",
+    ]
+    return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[best_item.chunk_id])
+
+
 def _build_cabin_baggage_allowance_answer(question: str, retrieved: list[RetrievedChunk]) -> RuleResult | None:
     q = question.lower()
     cabin_keywords = ["经济舱", "公务舱", "头等舱", "婴儿票"]
@@ -457,6 +791,8 @@ def _build_cabin_baggage_allowance_answer(question: str, retrieved: list[Retriev
                 score += 5
             if "行李" in s:
                 score += 2
+            if any(k in s for k in ["随身携带", "手提行李"]) and not any(k in s for k in ["免费行李额", "公斤", "kg"]):
+                score -= 5
             if any(k in s for k in ["人民币", "补偿费", "票价", "手续费", "赔偿"]):
                 score -= 8
             if score > best_score:
@@ -692,6 +1028,7 @@ def _extract_best_fact_sentence(question: str, retrieved: list[RetrievedChunk]) 
 def _build_battery_answer(question: str, retrieved: list[RetrievedChunk]) -> RuleResult | None:
     q_lower = question.lower()
     has_wh_token = bool(re.search(r"\b\d+(?:\.\d+)?\s*wh\b|\bwh\b", q_lower))
+    asks_checked = any(k in q_lower for k in ["托运", "行李托运", "可以托运", "能托运"])
     if not any(k in q_lower for k in ["充电宝", "锂电池", "额定能量"]) and not has_wh_token:
         return None
 
@@ -745,6 +1082,11 @@ def _build_battery_answer(question: str, retrieved: list[RetrievedChunk]) -> Rul
     )
 
     conclusion = "需人工复核。"
+    if asks_checked:
+        joined = "\n".join((r.text or "").lower() for r in evidence[:8])
+        if "禁止作为行李托运" in joined or ("锂电池" in joined and "托运" in joined and any(k in joined for k in ["禁止", "不得", "不能"])):
+            conclusion = "不能托运。"
+
     if asked_wh is not None:
         if asked_wh > 160:
             conclusion = "不能。"
@@ -993,6 +1335,9 @@ def _expected_answer_cue_groups(question: str) -> list[set[str]]:
 
     if any(k in q for k in ["什么时候", "多久", "几点", "提前", "时间", "关闭", "截止"]):
         groups.append({"小时", "分钟", "天", "提前", "截止", "关闭", "时", "点"})
+
+    if any(k in q for k in ["公务舱", "经济舱", "头等舱"]) and any(k in q for k in ["行李", "托运", "公斤", "行李额"]):
+        groups.append({"行李", "托运", "免费行李额", "公斤", "kg"})
 
     if _is_fee_question(question):
         groups.append({"费用", "收费", "元", "人民币", "美元", "票价", "价格"})

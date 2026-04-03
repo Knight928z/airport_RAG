@@ -1018,7 +1018,10 @@ def _build_contact_answer(question: str, retrieved: list[RetrievedChunk]) -> Rul
     if not _is_contact_question(question):
         return None
 
-    if not _question_mentions_specific_carrier(question):
+    is_airport_contact = _is_airport_contact_question(question)
+    has_specific_carrier = _question_mentions_specific_carrier(question)
+
+    if not has_specific_carrier and not is_airport_contact:
         return None
 
     best_item: RetrievedChunk | None = None
@@ -1026,6 +1029,10 @@ def _build_contact_answer(question: str, retrieved: list[RetrievedChunk]) -> Rul
     best_score = -1
 
     for item in retrieved:
+        if is_airport_contact:
+            scope, _carrier = _source_scope_and_carrier(item)
+            if scope not in {"airport", "unknown"}:
+                continue
         joined = _normalize_for_matching(f"{item.source} {item.text}")
         cue_score = sum(1 for kw in ["客服", "热线", "电话", "联系", "号码"] if kw in joined)
         numbers = _extract_contact_numbers(joined)
@@ -1049,6 +1056,11 @@ def _build_contact_answer(question: str, retrieved: list[RetrievedChunk]) -> Rul
         "风险提示：客服联系方式可能更新，请以航司官网与最新公告为准。",
     ]
     return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[best_item.chunk_id])
+
+
+def _is_airport_contact_question(question: str) -> bool:
+    q = (question or "").lower()
+    return any(k in q for k in ["机场", "白云"]) and _is_contact_question(question)
 
 
 def _is_numeric_question(question: str) -> bool:

@@ -705,6 +705,25 @@ def test_rule_based_contact_answer_extracts_cz_hotline_numbers() -> None:
     assert "4008695539" in ans.answer
 
 
+def test_rule_based_contact_answer_extracts_airport_hotline_numbers() -> None:
+    retrieved = [
+        RetrievedChunk(
+            chunk_id="airport-contact-1",
+            text="广州白云机场客服热线为020-96158，可提供旅客咨询服务。",
+            source="/data/documents/airport/机场服务指南",
+            page=None,
+            distance=0.1,
+            doc_scope="airport",
+            carrier="",
+        )
+    ]
+
+    ans = _build_rule_based_answer("机场客服热线是多少？", retrieved)
+
+    assert ans is not None
+    assert "96158" in ans.answer
+
+
 def test_contact_question_without_number_does_not_create_contact_rule_answer() -> None:
     retrieved = [
         RetrievedChunk(

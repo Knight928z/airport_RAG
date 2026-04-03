@@ -2,6 +2,14 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-03 08:19:49 +0800
+
+- 提交：`fix(rules): support airport hotline contact retrieval`
+- 变更文件：
+  - `src/airport_rag/rules.py`
+  - `tests/test_service_rerank.py`
+- 备注：新增机场客服热线问题规则命中与回归测试
+
 ## 2026-04-03 08:10:57 +0800
 
 - 提交：`fix(rag): improve airport routing and vector query fallback stability`

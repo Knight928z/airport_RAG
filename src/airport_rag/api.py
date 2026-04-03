@@ -37,6 +37,7 @@ ANSWER_FEEDBACK_LOG = FEEDBACK_ROOT / "answer_feedback.jsonl"
 UNCOVERED_LOG = FEEDBACK_ROOT / "uncovered_questions.jsonl"
 PATCH_DOC_NAME = "用户纠错补丁.md"
 PATCH_REGISTRY_LOG = FEEDBACK_ROOT / "patch_registry.jsonl"
+PATCH_AUDIT_LOG = FEEDBACK_ROOT / "patch_audit.jsonl"
 PATCH_MAX_BYTES = 64 * 1024
 PATCH_MERGE_ENTRY_THRESHOLD = 8
 
@@ -54,6 +55,20 @@ def _append_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
         f.write(content)
+
+
+def _read_jsonl(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    rows: list[dict] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return rows
 
 
 def _normalize_patch_key(text: str) -> str:
@@ -170,7 +185,7 @@ def _count_patch_entries(path: Path) -> int:
     return text.count("## feedback-patch ")
 
 
-def _merge_patch_into_main_doc(rel_path: str, patch_file: Path) -> bool:
+def _merge_patch_into_main_doc(rel_path: str, patch_file: Path, *, recreate_header: bool = True) -> bool:
     if not patch_file.exists():
         return False
     try:
@@ -214,10 +229,107 @@ def _merge_patch_into_main_doc(rel_path: str, patch_file: Path) -> bool:
     archived = archive_dir / f"{patch_file.stem}.{datetime.now().strftime('%Y%m%d%H%M%S')}{patch_file.suffix}"
     patch_file.replace(archived)
 
-    topic = patch_file.parent.parent.name if patch_file.parent.parent else "综合"
-    tier_name = patch_file.parent.name if patch_file.parent else "medium"
-    _ensure_patch_header(patch_file, topic=topic, tier=tier_name)
+    if recreate_header:
+        topic = patch_file.parent.parent.name if patch_file.parent.parent else "综合"
+        tier_name = patch_file.parent.name if patch_file.parent else "medium"
+        _ensure_patch_header(patch_file, topic=topic, tier=tier_name)
     return True
+
+
+def _iter_active_patch_files() -> list[tuple[str, Path]]:
+    active: list[tuple[str, Path]] = []
+    if not DOC_ROOT.exists():
+        return active
+    for root_folder in [x for x in DOC_ROOT.iterdir() if x.is_dir()]:
+        patch_root = root_folder / "patches"
+        if not patch_root.exists():
+            continue
+        for p in patch_root.rglob(f"*{PATCH_DOC_NAME}"):
+            if not p.is_file():
+                continue
+            if "archive" in p.parts:
+                continue
+            rel = p.relative_to(DOC_ROOT).as_posix()
+            active.append((rel, p))
+    return active
+
+
+def _patch_topic_tier_from_rel(rel_path: str) -> tuple[str, str]:
+    parts = Path(rel_path).parts
+    # {scope}/patches/{topic}/{tier}/{file}
+    if len(parts) >= 5 and parts[1] == "patches":
+        return parts[2], parts[3]
+    return "综合", "unknown"
+
+
+def _build_patch_stats() -> dict:
+    files = _iter_active_patch_files()
+    topic_stats: dict[str, dict[str, int]] = {}
+    total_entries = 0
+    total_files = 0
+
+    for rel, p in files:
+        entries = _count_patch_entries(p)
+        if entries <= 0:
+            continue
+        total_files += 1
+        total_entries += entries
+        topic, tier = _patch_topic_tier_from_rel(rel)
+        bucket = topic_stats.setdefault(topic, {"entries": 0, "files": 0, "high": 0, "medium": 0, "low": 0})
+        bucket["entries"] += entries
+        bucket["files"] += 1
+        if tier in {"high", "medium", "low"}:
+            bucket[tier] += entries
+
+    audits = _read_jsonl(PATCH_AUDIT_LOG)
+    dedup_count = sum(1 for a in audits if a.get("status") == "deduplicated")
+    merged_count = sum(1 for a in audits if a.get("status") == "merged")
+    considered = sum(1 for a in audits if a.get("status") in {"applied", "merged", "deduplicated"})
+    dedup_rate = (dedup_count / considered) if considered else 0.0
+
+    return {
+        "total_active_patch_files": total_files,
+        "total_active_patch_entries": total_entries,
+        "deduplicated_count": dedup_count,
+        "merged_count": merged_count,
+        "dedup_rate": round(dedup_rate, 4),
+        "topic_stats": topic_stats,
+    }
+
+
+def _review_and_merge_all_patches(cleanup: bool = True) -> dict:
+    merged_files = 0
+    merged_entries = 0
+    for rel, p in _iter_active_patch_files():
+        entries = _count_patch_entries(p)
+        if entries <= 0:
+            continue
+        ok = _merge_patch_into_main_doc(rel, p, recreate_header=not cleanup)
+        if ok:
+            merged_files += 1
+            merged_entries += entries
+            _append_jsonl(
+                PATCH_AUDIT_LOG,
+                {
+                    "timestamp": datetime.now().isoformat(timespec="seconds"),
+                    "status": "review-merged",
+                    "patch_path": rel,
+                    "entries": entries,
+                },
+            )
+
+    try:
+        service.ingest("./data/documents")
+        synced = True
+    except Exception:
+        synced = False
+
+    return {
+        "merged_files": merged_files,
+        "merged_entries": merged_entries,
+        "cleanup": cleanup,
+        "synced": synced,
+    }
 
 
 def _maybe_apply_feedback_patch(
@@ -231,6 +343,14 @@ def _maybe_apply_feedback_patch(
 ) -> tuple[bool, str | None, str | None, str]:
     trigger = (rating < 0) or bool(corrected_answer.strip())
     if not trigger:
+        _append_jsonl(
+            PATCH_AUDIT_LOG,
+            {
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "status": "skipped",
+                "question": question,
+            },
+        )
         return False, None, None, "skipped"
 
     topic = _feedback_topic(question, corrected_answer, comment)
@@ -243,6 +363,18 @@ def _maybe_apply_feedback_patch(
 
     fingerprint = _feedback_fingerprint(question, corrected_answer, topic)
     if fingerprint in _existing_patch_fingerprints():
+        _append_jsonl(
+            PATCH_AUDIT_LOG,
+            {
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "status": "deduplicated",
+                "question": question,
+                "topic": topic,
+                "tier": tier,
+                "patch_path": rel_path,
+                "fingerprint": fingerprint,
+            },
+        )
         try:
             iterated = service.ask(question)
             return False, rel_path, iterated.answer, "deduplicated"
@@ -281,9 +413,36 @@ def _maybe_apply_feedback_patch(
     try:
         service.ingest("./data/documents")
         iterated = service.ask(question)
-        return True, rel_path, iterated.answer, ("merged" if merged else "applied")
+        status = "merged" if merged else "applied"
+        _append_jsonl(
+            PATCH_AUDIT_LOG,
+            {
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "status": status,
+                "question": question,
+                "topic": topic,
+                "tier": tier,
+                "patch_path": rel_path,
+                "fingerprint": fingerprint,
+            },
+        )
+        return True, rel_path, iterated.answer, status
     except Exception:
-        return True, rel_path, None, ("merged" if merged else "applied")
+        status = "merged" if merged else "applied"
+        _append_jsonl(
+            PATCH_AUDIT_LOG,
+            {
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "status": status,
+                "question": question,
+                "topic": topic,
+                "tier": tier,
+                "patch_path": rel_path,
+                "fingerprint": fingerprint,
+                "sync_error": True,
+            },
+        )
+        return True, rel_path, None, status
 
 
 def _record_uncovered_question(
@@ -387,6 +546,14 @@ def admin_home() -> FileResponse:
     if not admin_file.exists():
         raise HTTPException(status_code=404, detail="Admin UI page not found")
     return FileResponse(admin_file)
+
+
+@app.get("/admin/patches")
+def admin_patches_home() -> FileResponse:
+    page_file = STATIC_DIR / "patches.html"
+    if not page_file.exists():
+        raise HTTPException(status_code=404, detail="Patches admin page not found")
+    return FileResponse(page_file)
 
 
 class AdminClassifyRequest(BaseModel):
@@ -859,6 +1026,21 @@ def submit_feedback(req: AnswerFeedbackRequest) -> AnswerFeedbackResponse:
         patch_path=patch_path,
         iterated_answer=iterated_answer,
     )
+
+
+@app.get("/admin/patches/stats")
+def admin_patch_stats() -> dict:
+    return _build_patch_stats()
+
+
+@app.post("/admin/patches/review-merge")
+def admin_patch_review_merge(cleanup: bool = True) -> dict:
+    result = _review_and_merge_all_patches(cleanup=cleanup)
+    return {
+        "status": "ok",
+        **result,
+        "stats": _build_patch_stats(),
+    }
 
 
 @app.get("/self-test")

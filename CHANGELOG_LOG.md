@@ -2,6 +2,17 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-03 09:52:43 +0800
+
+- 提交：`feat(admin): add patches governance dashboard and review merge action`
+- 变更文件：
+  - `src/airport_rag/api.py`
+  - `src/airport_rag/prompts.py`
+  - `src/airport_rag/static/admin.html`
+  - `src/airport_rag/static/patches.html`
+  - `tests/test_admin_patches.py`
+- 备注：新增/admin/patches管理页与统计接口，支持主题补丁数量/去重率/合并次数展示及一键审核回写主文档并清理补丁；同步优化prompts专业表达
+
 ## 2026-04-03 09:47:19 +0800
 
 - 提交：`feat(feedback): add patch governance with dedup tiering and merge`

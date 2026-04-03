@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>补丁治理面板</title>
+    <style>
+      :root { --bg:#f6f8fc; --card:#fff; --line:#dfe6f5; --text:#1f2a44; --muted:#66708a; --primary:#225cff; --danger:#d94848; }
+      * { box-sizing: border-box; }
+      body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); }
+      .wrap { max-width:1100px; margin:0 auto; padding:20px; }
+      .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:12px; }
+      h1 { margin:0 0 8px; font-size:24px; }
+      .muted { color:var(--muted); font-size:13px; }
+      .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+      .kpi { min-width:180px; padding:10px; border:1px solid var(--line); border-radius:10px; background:#fbfcff; }
+      .kpi .label { font-size:12px; color:var(--muted); }
+      .kpi .value { font-size:20px; font-weight:700; margin-top:4px; }
+      button { border:none; background:var(--primary); color:#fff; border-radius:8px; padding:8px 12px; cursor:pointer; }
+      button.secondary { background:#51607f; }
+      table { width:100%; border-collapse: collapse; }
+      th, td { border-bottom:1px solid var(--line); padding:8px; text-align:left; font-size:13px; }
+      th { color:var(--muted); font-weight:600; }
+      #status.error { color:var(--danger); }
+      code { background:#eef2ff; border-radius:6px; padding:1px 6px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>补丁治理面板</h1>
+      <p class="muted">查看主题补丁规模、去重率、合并次数，并支持一键审核“回写主文档+清理补丁”。</p>
+      <p class="muted"><a href="/admin" style="color:#225cff;text-decoration:none;">← 返回文档管理后台</a></p>
+
+      <section class="card">
+        <div class="row" style="justify-content:space-between;">
+          <div class="row">
+            <button id="btn-refresh" class="secondary">刷新统计</button>
+            <button id="btn-review-merge">一键审核并回写主文档（清理补丁）</button>
+          </div>
+          <label class="muted"><input id="cleanup" type="checkbox" checked /> 审核后清理补丁</label>
+        </div>
+        <div id="status" class="muted" style="margin-top:8px;"></div>
+      </section>
+
+      <section class="card">
+        <div class="row" id="kpis"></div>
+      </section>
+
+      <section class="card">
+        <h3 style="margin:0 0 8px;">主题补丁明细</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>主题</th>
+              <th>补丁条目数</th>
+              <th>文件数</th>
+              <th>High</th>
+              <th>Medium</th>
+              <th>Low</th>
+            </tr>
+          </thead>
+          <tbody id="topic-body"></tbody>
+        </table>
+      </section>
+    </div>
+
+    <script>
+      const kpisEl = document.getElementById('kpis');
+      const topicBodyEl = document.getElementById('topic-body');
+      const statusEl = document.getElementById('status');
+      const btnRefresh = document.getElementById('btn-refresh');
+      const btnReviewMerge = document.getElementById('btn-review-merge');
+      const cleanupEl = document.getElementById('cleanup');
+
+      function setStatus(msg, isError=false) {
+        statusEl.textContent = msg;
+        statusEl.className = isError ? 'muted error' : 'muted';
+      }
+
+      function renderKpis(data) {
+        const items = [
+          ['活跃补丁文件', data.total_active_patch_files ?? 0],
+          ['活跃补丁条目', data.total_active_patch_entries ?? 0],
+          ['去重率', `${((data.dedup_rate ?? 0) * 100).toFixed(2)}%`],
+          ['去重次数', data.deduplicated_count ?? 0],
+          ['合并次数', data.merged_count ?? 0],
+        ];
+        kpisEl.innerHTML = items.map(([label, value]) => `
+          <div class="kpi">
+            <div class="label">${label}</div>
+            <div class="value">${value}</div>
+          </div>
+        `).join('');
+      }
+
+      function renderTopics(data) {
+        const stats = data.topic_stats || {};
+        const rows = Object.entries(stats).sort((a,b)=>(b[1].entries||0)-(a[1].entries||0));
+        if (!rows.length) {
+          topicBodyEl.innerHTML = `<tr><td colspan="6" class="muted">暂无活跃补丁。</td></tr>`;
+          return;
+        }
+        topicBodyEl.innerHTML = rows.map(([topic, s]) => `
+          <tr>
+            <td><code>${topic}</code></td>
+            <td>${s.entries || 0}</td>
+            <td>${s.files || 0}</td>
+            <td>${s.high || 0}</td>
+            <td>${s.medium || 0}</td>
+            <td>${s.low || 0}</td>
+          </tr>
+        `).join('');
+      }
+
+      async function refreshStats() {
+        const res = await fetch('/admin/patches/stats');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '加载统计失败');
+        renderKpis(data);
+        renderTopics(data);
+        setStatus(`统计刷新完成：${new Date().toLocaleTimeString()}`);
+      }
+
+      async function reviewMerge() {
+        btnReviewMerge.disabled = true;
+        setStatus('正在审核并回写主文档，请稍候...');
+        try {
+          const res = await fetch(`/admin/patches/review-merge?cleanup=${cleanupEl.checked ? 'true' : 'false'}`, {
+            method: 'POST',
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || '审核合并失败');
+          renderKpis(data.stats || {});
+          renderTopics(data.stats || {});
+          setStatus(`审核完成：合并文件 ${data.merged_files}，合并条目 ${data.merged_entries}，索引同步 ${data.synced ? '成功' : '失败'}`);
+        } catch (err) {
+          setStatus(`审核失败：${err.message}`, true);
+        } finally {
+          btnReviewMerge.disabled = false;
+        }
+      }
+
+      btnRefresh.addEventListener('click', () => refreshStats().catch(err => setStatus(`刷新失败：${err.message}`, true)));
+      btnReviewMerge.addEventListener('click', reviewMerge);
+
+      refreshStats().catch(err => setStatus(`初始化失败：${err.message}`, true));
+    </script>
+  </body>
+</html>

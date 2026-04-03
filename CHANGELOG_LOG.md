@@ -2,6 +2,14 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-03 09:27:58 +0800
+
+- 提交：`fix(api): keep admin pdf preview inline instead of auto-download`
+- 变更文件：
+  - `src/airport_rag/api.py`
+  - `tests/test_admin_binary_upload.py`
+- 备注：admin /admin/docs/raw 改为 inline Content-Disposition，修复前端 PDF 预览自动跳下载；补充回归测试校验响应头
+
 ## 2026-04-03 09:17:48 +0800
 
 - 提交：`fix(rules): improve accuracy for 8 key passenger policy questions`

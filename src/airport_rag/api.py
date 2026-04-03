@@ -478,7 +478,12 @@ def admin_get_doc_raw(path: str = Query(..., min_length=1)) -> FileResponse:
     full = _safe_doc_path(path)
     if not full.exists() or not full.is_file():
         raise HTTPException(status_code=404, detail="document not found")
-    return FileResponse(path=full, media_type=_guess_media_type(full), filename=full.name)
+    return FileResponse(
+        path=full,
+        media_type=_guess_media_type(full),
+        filename=full.name,
+        content_disposition_type="inline",
+    )
 
 
 @app.post("/admin/docs/classify")

@@ -64,3 +64,6 @@ def test_admin_get_doc_raw_returns_file(tmp_path: Path, monkeypatch) -> None:
 
     assert resp.status_code == 200
     assert resp.content == content
+    disposition = resp.headers.get("content-disposition", "").lower()
+    assert "inline" in disposition
+    assert "attachment" not in disposition

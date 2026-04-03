@@ -2,6 +2,16 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-03 09:47:19 +0800
+
+- 提交：`feat(feedback): add patch governance with dedup tiering and merge`
+- 变更文件：
+  - `src/airport_rag/api.py`
+  - `src/airport_rag/schemas.py`
+  - `src/airport_rag/static/index.html`
+  - `tests/test_feedback_logging.py`
+- 备注：新增补丁治理：同问题去重、按主题与置信分层归档、阈值触发自动合并到知识补丁合并稿并归档轮转，前端展示patch_status
+
 ## 2026-04-03 09:36:21 +0800
 
 - 提交：`feat(feedback): add auto knowledge patch closed-loop`

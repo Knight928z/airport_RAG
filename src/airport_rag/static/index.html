@@ -275,6 +275,11 @@
         if (data.patch_applied) {
           tips.push(`已触发知识补丁：${data.patch_path || 'unknown'}`);
         }
+        if (data.patch_status && !data.patch_applied) {
+          tips.push(`补丁状态：${data.patch_status}`);
+        } else if (data.patch_status && data.patch_status !== 'applied') {
+          tips.push(`补丁状态：${data.patch_status}`);
+        }
         if (data.iterated_answer) {
           answerEl.textContent = data.iterated_answer;
           if (lastResponse) {

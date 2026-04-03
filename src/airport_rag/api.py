@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import mimetypes
 from datetime import datetime
@@ -35,6 +36,9 @@ FEEDBACK_ROOT = (BASE_DIR.parent.parent / "data" / "feedback").resolve()
 ANSWER_FEEDBACK_LOG = FEEDBACK_ROOT / "answer_feedback.jsonl"
 UNCOVERED_LOG = FEEDBACK_ROOT / "uncovered_questions.jsonl"
 PATCH_DOC_NAME = "用户纠错补丁.md"
+PATCH_REGISTRY_LOG = FEEDBACK_ROOT / "patch_registry.jsonl"
+PATCH_MAX_BYTES = 64 * 1024
+PATCH_MERGE_ENTRY_THRESHOLD = 8
 
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -52,10 +56,68 @@ def _append_text(path: Path, content: str) -> None:
         f.write(content)
 
 
+def _normalize_patch_key(text: str) -> str:
+    return re.sub(r"\s+", "", (text or "").strip().lower())
+
+
+def _feedback_topic(question: str, corrected_answer: str, comment: str) -> str:
+    joined = f"{question}\n{corrected_answer}\n{comment}".lower()
+    topic_rules = {
+        "行李": ["行李", "托运", "随身", "充电宝", "锂电池", "液态", "液体", "公斤"],
+        "票务": ["退票", "改签", "保险", "机票", "军残", "残疾军人证", "儿童票", "婴儿票"],
+        "海关": ["海关", "申报", "红色通道", "绿色通道", "现钞", "人民币", "美元"],
+        "边检": ["边检", "边防", "入境", "出境", "旅游团", "签证", "护照", "入境卡"],
+        "出发到达": ["出发", "到达", "值机", "登机", "航站楼", "截止", "提前"],
+        "客服": ["客服", "热线", "电话", "联系方式"],
+    }
+    for topic, keywords in topic_rules.items():
+        if any(k in joined for k in keywords):
+            return topic
+    return "综合"
+
+
+def _feedback_confidence_tier(confidence_note: str, rating: int, corrected_answer: str) -> str:
+    if corrected_answer.strip():
+        return "high"
+    if rating < 0 and confidence_note in {"low-confidence", "index-empty"}:
+        return "high"
+    if rating < 0:
+        return "medium"
+    return "low"
+
+
+def _feedback_fingerprint(question: str, corrected_answer: str, topic: str) -> str:
+    base = "|".join([_normalize_patch_key(question), _normalize_patch_key(corrected_answer), topic])
+    return hashlib.sha1(base.encode("utf-8")).hexdigest()
+
+
+def _existing_patch_fingerprints() -> set[str]:
+    if not PATCH_REGISTRY_LOG.exists():
+        return set()
+    fingerprints: set[str] = set()
+    try:
+        for line in PATCH_REGISTRY_LOG.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            fp = row.get("fingerprint")
+            if fp:
+                fingerprints.add(fp)
+    except Exception:
+        return set()
+    return fingerprints
+
+
 def _feedback_patch_target(question: str, corrected_answer: str) -> tuple[str, Path]:
     carrier = _resolve_carrier_code(f"{question}\n{corrected_answer}")
     folder = carrier if carrier else "airport"
-    rel = f"{folder}/{PATCH_DOC_NAME}"
+    topic = _feedback_topic(question, corrected_answer, "")
+    tier = _feedback_confidence_tier("", -1, corrected_answer)
+    month_key = datetime.now().strftime("%Y-%m")
+    rel = f"{folder}/patches/{topic}/{tier}/{month_key}-{PATCH_DOC_NAME}"
     return rel, _safe_doc_path(rel)
 
 
@@ -79,10 +141,83 @@ def _build_feedback_patch_markdown(
         f"- 旧答案：{answer}\n"
         f"- 置信标记：{confidence_note}\n"
         f"- 质量信号：{quality_signal}\n"
+        f"- 置信分层：{_feedback_confidence_tier(confidence_note, rating, corrected_answer)}\n"
         f"- 评价角度：{angle}\n"
         f"- 建议修正：{correction}\n"
         "- 应用策略：将本条作为知识补丁参与后续检索与回答重写，优先采用“建议修正”中的可核验事实。\n"
     )
+
+
+def _ensure_patch_header(path: Path, *, topic: str, tier: str) -> None:
+    if path.exists():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "# 用户纠错知识补丁\n\n"
+        "> 自动由 /feedback 触发生成，用于将用户点踩与纠错内容纳入知识库增量修正。\n"
+        f"> 主题：{topic} ｜ 置信分层：{tier}\n",
+        encoding="utf-8",
+    )
+
+
+def _count_patch_entries(path: Path) -> int:
+    if not path.exists():
+        return 0
+    try:
+        text = path.read_text(encoding="utf-8")
+    except Exception:
+        return 0
+    return text.count("## feedback-patch ")
+
+
+def _merge_patch_into_main_doc(rel_path: str, patch_file: Path) -> bool:
+    if not patch_file.exists():
+        return False
+    try:
+        text = patch_file.read_text(encoding="utf-8")
+    except Exception:
+        return False
+
+    entries = [seg for seg in text.split("\n\n---\n") if "## feedback-patch" in seg]
+    if not entries:
+        return False
+
+    rel_parts = Path(rel_path).parts
+    root_folder = rel_parts[0] if rel_parts else "airport"
+    main_doc = _safe_doc_path(f"{root_folder}/知识补丁合并稿.md")
+    main_doc.parent.mkdir(parents=True, exist_ok=True)
+    if not main_doc.exists():
+        main_doc.write_text(
+            "# 知识补丁合并稿\n\n> 由反馈补丁自动聚合生成，用于人工审核后回写主知识文档。\n",
+            encoding="utf-8",
+        )
+
+    merged_lines = [
+        "\n\n---",
+        f"## patch-merge {datetime.now().isoformat(timespec='seconds')}",
+        f"- 来源补丁：{rel_path}",
+    ]
+    for e in entries[-20:]:
+        q = re.search(r"- 问题：(.*)", e)
+        c = re.search(r"- 建议修正：(.*)", e)
+        tier = re.search(r"- 置信分层：(.*)", e)
+        merged_lines.append(
+            f"- 问题：{(q.group(1).strip() if q else '未知')}｜置信分层：{(tier.group(1).strip() if tier else 'unknown')}"
+        )
+        if c:
+            merged_lines.append(f"  - 建议修正：{c.group(1).strip()}")
+
+    _append_text(main_doc, "\n".join(merged_lines) + "\n")
+
+    archive_dir = patch_file.parent / "archive"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    archived = archive_dir / f"{patch_file.stem}.{datetime.now().strftime('%Y%m%d%H%M%S')}{patch_file.suffix}"
+    patch_file.replace(archived)
+
+    topic = patch_file.parent.parent.name if patch_file.parent.parent else "综合"
+    tier_name = patch_file.parent.name if patch_file.parent else "medium"
+    _ensure_patch_header(patch_file, topic=topic, tier=tier_name)
+    return True
 
 
 def _maybe_apply_feedback_patch(
@@ -93,18 +228,28 @@ def _maybe_apply_feedback_patch(
     rating: int,
     corrected_answer: str,
     comment: str,
-) -> tuple[bool, str | None, str | None]:
+) -> tuple[bool, str | None, str | None, str]:
     trigger = (rating < 0) or bool(corrected_answer.strip())
     if not trigger:
-        return False, None, None
+        return False, None, None, "skipped"
 
-    rel_path, full_path = _feedback_patch_target(question, corrected_answer)
-    if not full_path.exists():
-        full_path.write_text(
-            "# 用户纠错知识补丁\n\n"
-            "> 自动由 /feedback 触发生成，用于将用户点踩与纠错内容纳入知识库增量修正。\n",
-            encoding="utf-8",
-        )
+    topic = _feedback_topic(question, corrected_answer, comment)
+    tier = _feedback_confidence_tier(confidence_note, rating, corrected_answer)
+    carrier = _resolve_carrier_code(f"{question}\n{corrected_answer}")
+    folder = carrier if carrier else "airport"
+    month_key = datetime.now().strftime("%Y-%m")
+    rel_path = f"{folder}/patches/{topic}/{tier}/{month_key}-{PATCH_DOC_NAME}"
+    full_path = _safe_doc_path(rel_path)
+
+    fingerprint = _feedback_fingerprint(question, corrected_answer, topic)
+    if fingerprint in _existing_patch_fingerprints():
+        try:
+            iterated = service.ask(question)
+            return False, rel_path, iterated.answer, "deduplicated"
+        except Exception:
+            return False, rel_path, None, "deduplicated"
+
+    _ensure_patch_header(full_path, topic=topic, tier=tier)
 
     patch_md = _build_feedback_patch_markdown(
         question=question,
@@ -115,13 +260,30 @@ def _maybe_apply_feedback_patch(
         comment=comment,
     )
     _append_text(full_path, patch_md)
+    _append_jsonl(
+        PATCH_REGISTRY_LOG,
+        {
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "fingerprint": fingerprint,
+            "question": question,
+            "topic": topic,
+            "tier": tier,
+            "patch_path": rel_path,
+        },
+    )
+
+    merged = False
+    if full_path.exists() and full_path.stat().st_size >= PATCH_MAX_BYTES:
+        merged = _merge_patch_into_main_doc(rel_path, full_path)
+    elif _count_patch_entries(full_path) >= PATCH_MERGE_ENTRY_THRESHOLD:
+        merged = _merge_patch_into_main_doc(rel_path, full_path)
 
     try:
         service.ingest("./data/documents")
         iterated = service.ask(question)
-        return True, rel_path, iterated.answer
+        return True, rel_path, iterated.answer, ("merged" if merged else "applied")
     except Exception:
-        return True, rel_path, None
+        return True, rel_path, None, ("merged" if merged else "applied")
 
 
 def _record_uncovered_question(
@@ -670,7 +832,7 @@ def submit_feedback(req: AnswerFeedbackRequest) -> AnswerFeedbackResponse:
     }
     _append_jsonl(ANSWER_FEEDBACK_LOG, payload)
 
-    patch_applied, patch_path, iterated_answer = _maybe_apply_feedback_patch(
+    patch_applied, patch_path, iterated_answer, patch_status = _maybe_apply_feedback_patch(
         question=req.question,
         answer=req.answer,
         confidence_note=req.confidence_note,
@@ -693,6 +855,7 @@ def submit_feedback(req: AnswerFeedbackRequest) -> AnswerFeedbackResponse:
         status="ok",
         feedback_id=feedback_id,
         patch_applied=patch_applied,
+        patch_status=patch_status,
         patch_path=patch_path,
         iterated_answer=iterated_answer,
     )

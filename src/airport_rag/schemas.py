@@ -40,6 +40,7 @@ class AnswerFeedbackResponse(BaseModel):
     status: str
     feedback_id: str
     patch_applied: bool = False
+    patch_status: Optional[str] = None
     patch_path: Optional[str] = None
     iterated_answer: Optional[str] = None
 

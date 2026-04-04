@@ -2,6 +2,15 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-04 11:30:39 +0800
+
+- 提交：`fix(realtime): require confirm for non-flight-no queries`
+- 变更文件：
+  - `src/airport_rag/api.py`
+  - `src/airport_rag/static/index.html`
+  - `tests/test_realtime_flight_api.py`
+- 备注：ask接口仅对含明确航班号的问题自动调用实时航班；前端新增‘系统暂无此航班信息，是否查询？’二次确认按钮后再触发/flight/realtime；补充防误触回归测试。
+
 ## 2026-04-04 11:22:45 +0800
 
 - 提交：`refactor(realtime): load field labels from documents mapping`

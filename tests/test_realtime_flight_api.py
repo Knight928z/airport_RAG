@@ -97,6 +97,32 @@ def test_ask_fallback_to_rag_when_realtime_not_matched(monkeypatch) -> None:
     assert body["realtime_flight"] is None
 
 
+def test_ask_does_not_auto_call_realtime_without_flight_no(monkeypatch) -> None:
+    def _should_not_call(*_args, **_kwargs):
+        raise AssertionError("query_realtime_flight should not be called without explicit flight number")
+
+    monkeypatch.setattr(api_module, "query_realtime_flight", _should_not_call)
+    monkeypatch.setattr(
+        api_module.service,
+        "ask",
+        lambda question, top_k=None: AskResponse(
+            question=question,
+            answer="普通问答回答",
+            citations=[],
+            confidence_note="rule-based",
+        ),
+    )
+
+    client = TestClient(api_module.app)
+    resp = client.post("/ask", json={"question": "这个航班什么时候到达广州？"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["answer"] == "普通问答回答"
+    assert body["confidence_note"] == "rule-based"
+    assert body["realtime_flight"] is None
+
+
 def test_flight_realtime_endpoint_returns_standard_card(monkeypatch) -> None:
     monkeypatch.setattr(
         api_module,

@@ -183,6 +183,13 @@
         margin-bottom: 6px;
         line-height: 1.5;
       }
+      .realtime-confirm {
+        margin-top: 10px;
+        border: 1px dashed var(--line);
+        border-radius: 8px;
+        padding: 10px;
+        background: #f8faff;
+      }
     </style>
   </head>
   <body>
@@ -228,6 +235,12 @@
           <span id="confidence" class="badge">状态：待提问</span>
         </div>
         <div id="answer" class="answer meta" style="margin-top: 8px;">等待提问...</div>
+        <div id="realtime-confirm-box" class="realtime-confirm hidden">
+          <div class="meta">系统暂无此航班信息，是否查询？</div>
+          <div class="row" style="margin-top:8px;">
+            <button id="btn-confirm-realtime" type="button" class="secondary">查询实时航班</button>
+          </div>
+        </div>
         <div class="feedback-row">
           <button id="btn-like" type="button">👍 点赞</button>
           <button id="btn-dislike" type="button">👎 点踩</button>
@@ -296,10 +309,13 @@
   const flightToggleDetailEl = document.getElementById('flight-toggle-detail');
   const flightDetailsEl = document.getElementById('flight-details');
   const flightDetailListEl = document.getElementById('flight-detail-list');
+  const realtimeConfirmBoxEl = document.getElementById('realtime-confirm-box');
+  const confirmRealtimeBtn = document.getElementById('btn-confirm-realtime');
 
   let lastResponse = null;
   let currentRealtimeDetails = null;
   let flightDetailLabelMap = {};
+  let pendingRealtimeQuestion = '';
 
   const FLIGHT_DETAIL_PRIORITY = [
     'FlightNo', 'flight_no', 'flightNo',
@@ -360,10 +376,26 @@
       }
 
       function isRealtimeFlightQuestion(question) {
-        const q = (question || '').toLowerCase();
-        const hasKeyword = ['实时', '动态', '延误', '起飞', '降落', '到达', '登机口', 'status', 'delay', 'realtime'].some(k => q.includes(k));
         const hasFlightNo = /\b[a-z]{2}\s?\d{3,4}\b/i.test(question || '');
-        return hasKeyword || hasFlightNo;
+        return hasFlightNo;
+      }
+
+      function shouldOfferRealtimeConfirm(question) {
+        const q = (question || '').toLowerCase();
+        const hasFlightNo = /\b[a-z]{2}\s?\d{3,4}\b/i.test(question || '');
+        const hasFlightWord = q.includes('航班') || q.includes('flight');
+        const hasRealtimeIntent = ['实时', '动态', '状态', '延误', '晚点', '取消', '起飞', '降落', '到达', 'realtime', 'status', 'delay'].some(k => q.includes(k));
+        return !hasFlightNo && hasFlightWord && hasRealtimeIntent;
+      }
+
+      function setRealtimeConfirmState(show, question = '') {
+        if (show) {
+          pendingRealtimeQuestion = question || '';
+          realtimeConfirmBoxEl.classList.remove('hidden');
+        } else {
+          pendingRealtimeQuestion = '';
+          realtimeConfirmBoxEl.classList.add('hidden');
+        }
       }
 
       function buildRealtimeSummary(card) {
@@ -513,8 +545,10 @@
 
           if (data.realtime_flight) {
             answerEl.textContent = buildRealtimeSummary(data.realtime_flight);
+            setRealtimeConfirmState(false);
           } else {
             answerEl.textContent = data.answer;
+            setRealtimeConfirmState(shouldOfferRealtimeConfirm(question), question);
           }
           renderCitations(data.citations);
           setConfidence(data.confidence_note || 'unknown');
@@ -524,11 +558,45 @@
           setError(`问答失败：${err.message}`);
           renderCitations([]);
           setConfidence('error');
+          setRealtimeConfirmState(false);
           renderRealtimeFlightCard(null);
           lastResponse = null;
         } finally {
           askBtn.disabled = false;
           askBtn.textContent = '开始问答';
+        }
+      });
+
+      confirmRealtimeBtn.addEventListener('click', async () => {
+        if (!pendingRealtimeQuestion) return;
+        confirmRealtimeBtn.disabled = true;
+        const prevText = confirmRealtimeBtn.textContent;
+        confirmRealtimeBtn.textContent = '查询中...';
+        try {
+          const res = await fetch('/flight/realtime', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question: pendingRealtimeQuestion }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || '实时航班查询失败');
+
+          answerEl.textContent = buildRealtimeSummary(data.realtime_flight || {});
+          setConfidence(data.confidence_note || 'realtime-flight');
+          renderCitations([]);
+          renderRealtimeFlightCard(data.realtime_flight || null, data.realtime_flight_details || null);
+          setRealtimeConfirmState(false);
+          lastResponse = {
+            answer_id: null,
+            question: data.question || pendingRealtimeQuestion,
+            answer: data.answer || '',
+            confidence_note: data.confidence_note || 'realtime-flight',
+          };
+        } catch (err) {
+          feedbackStatusEl.textContent = `实时查询失败：${err.message}`;
+        } finally {
+          confirmRealtimeBtn.disabled = false;
+          confirmRealtimeBtn.textContent = prevText;
         }
       });
 

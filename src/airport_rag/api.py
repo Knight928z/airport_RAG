@@ -1196,10 +1196,11 @@ def flight_realtime(req: FlightRealtimeRequest) -> dict:
 def ask(req: AskRequest) -> AskResponse:
     try:
         realtime_result = None
-        try:
-            realtime_result = query_realtime_flight(question=req.question)
-        except Exception:
-            realtime_result = None
+        if normalize_flight_no(req.question):
+            try:
+                realtime_result = query_realtime_flight(question=req.question)
+            except Exception:
+                realtime_result = None
         if realtime_result is not None:
             answer_text, card, details = _split_realtime_result(realtime_result)
             try:

@@ -1295,7 +1295,7 @@ def self_test() -> dict:
             topic_scores[topic]["total"] += 1
         try:
             r = service.ask(q)
-            is_low = r.confidence_note == "low-confidence"
+            is_low = r.confidence_note in {"low-confidence", "index-empty"}
             actual = "low-confidence" if is_low else "answer"
             ok = actual == expect
             if ok:

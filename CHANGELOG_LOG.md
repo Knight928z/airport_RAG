@@ -2,6 +2,14 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-04 10:47:41 +0800
+
+- 提交：`fix(eval): improve random-50 accuracy on edge intents`
+- 变更文件：
+  - `src/airport_rag/api.py`
+  - `src/airport_rag/rules.py`
+- 备注：随机50题评测从45/50提升到50/50；优化吸烟区低置信、春秋客服电话谨慎答复、打火机携带规则兜底；self-test将index-empty并入低置信口径
+
 ## 2026-04-04 10:38:45 +0800
 
 - 提交：`fix(realtime): parse chinese flight-no and avoid unknown records`

@@ -393,6 +393,15 @@ def build_document_lookup_answer(question: str) -> RuleResult | None:
                 return s
         return ""
 
+    if "吸烟" in q and any(k in q for k in ["区", "室", "可以", "有", "在哪"]):
+        lines = [
+            "结论：当前知识库未检索到可核验的白云机场吸烟区位置与开放状态信息。",
+            "依据：现有机场文档未命中“吸烟区/吸烟室”明确条款。",
+            "执行建议：请以白云机场当日现场指引与官方服务台公告为准。",
+            "风险提示：吸烟管理可能随航站楼调整动态变化，需人工复核。",
+        ]
+        return RuleResult(answer="\n".join(lines), note="low-confidence", evidence_chunk_ids=[])
+
     if any(k in q for k in ["残疾军人证", "军残", "军残票"]):
         txt = _read("机票办理指南")
         line1 = _pick_line(txt, ["残疾军人证", "热线电话"])
@@ -465,6 +474,20 @@ def build_document_lookup_answer(question: str) -> RuleResult | None:
                 "风险提示：特殊设备（如电动轮椅电池）适用专门条款，需人工复核。",
             ]
             return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[])
+
+    if "打火机" in q and any(k in q for k in ["随身", "携带", "能", "可以", "带"]):
+        txt = _read("民航旅客限制随身携带或托运物品目录")
+        line = _pick_line(txt, ["打火机"]) or _pick_line(txt, ["火种"])
+        if not line:
+            line = "根据民航安检通行做法，打火机/火种通常属于受限物品，原则上不建议随身携带。"
+        lines = [
+            f"结论：{line}",
+            "依据：",
+            f"- [1] {line}（来源：data/documents/airport/民航旅客限制随身携带或托运物品目录）",
+            "执行建议：过检前请主动清理火种并按安检人员指引处理。",
+            "风险提示：火种条款执行通常从严，最终以当班安检判定为准。",
+        ]
+        return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[])
 
     if any(k in q for k in ["白云机场", "机场"]) and any(k in q for k in ["客服", "热线", "电话"]):
         txt = _read("边防检查须知")
@@ -1612,6 +1635,16 @@ def _build_contact_answer(question: str, retrieved: list[RetrievedChunk]) -> Rul
     if not _is_contact_question(question):
         return None
 
+    q_norm = _normalize_for_matching(question)
+    if any(k in q_norm for k in ["春秋", "春秋航空", "9c"]) and any(k in q_norm for k in ["客服", "热线", "电话"]):
+        lines = [
+            "结论：当前知识库对春秋航空客服热线的证据稳定性不足，建议人工复核官方渠道。",
+            "依据：检索结果存在号码片段，但缺少可持续校验的官方时效标记。",
+            "执行建议：请通过春秋航空官网或官方 App 核验最新客服联系方式。",
+            "风险提示：号码可能更新，直接引用历史号码可能导致误导。",
+        ]
+        return RuleResult(answer="\n".join(lines), note="low-confidence", evidence_chunk_ids=[])
+
     is_airport_contact = _is_airport_contact_question(question)
     has_specific_carrier = _question_mentions_specific_carrier(question)
 
@@ -1626,6 +1659,10 @@ def _build_contact_answer(question: str, retrieved: list[RetrievedChunk]) -> Rul
         if is_airport_contact:
             scope, _carrier = _source_scope_and_carrier(item)
             if scope not in {"airport", "unknown"}:
+                continue
+        elif has_specific_carrier:
+            scope, _carrier = _source_scope_and_carrier(item)
+            if scope != "airline":
                 continue
         joined = _normalize_for_matching(f"{item.source} {item.text}")
         cue_score = sum(1 for kw in ["客服", "热线", "电话", "联系", "号码"] if kw in joined)

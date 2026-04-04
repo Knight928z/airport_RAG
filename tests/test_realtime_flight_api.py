@@ -152,3 +152,26 @@ def test_persist_realtime_record_uses_question_flight_no_when_card_unknown(tmp_p
     assert out["path"].endswith("CZ325.md")
     saved = (tmp_path / out["path"]).read_text(encoding="utf-8")
     assert "航班号：CZ325" in saved
+
+
+def test_flight_field_mappings_loaded_from_documents(tmp_path: Path, monkeypatch) -> None:
+    doc_root = tmp_path / "documents"
+    mapping_file = doc_root / "airport" / "实时航班" / "航班字段"
+    mapping_file.parent.mkdir(parents=True, exist_ok=True)
+    mapping_file.write_text(
+        "| 字段名 | 信息映射 |\n"
+        "| :--- | :--- |\n"
+        "| FlightNo | 航班号 |\n"
+        "| BoardGate | 登机口 |\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(api_module, "DOC_ROOT", doc_root)
+    client = TestClient(api_module.app)
+    resp = client.get("/flight/field-mappings")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["source_path"] == "airport/实时航班/航班字段"
+    assert body["mappings"]["FlightNo"] == "航班号"
+    assert body["mappings"]["BoardGate"] == "登机口"

@@ -37,6 +37,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_ROOT = (BASE_DIR.parent.parent / "data").resolve()
 STATIC_DIR = BASE_DIR / "static"
 DOC_ROOT = (DATA_ROOT / "documents").resolve()
+FLIGHT_FIELD_MAPPING_DOC_REL = "airport/实时航班/航班字段"
 PATCH_ROOT = (DATA_ROOT / "patches").resolve()
 FEEDBACK_ROOT = (DATA_ROOT / "feedback").resolve()
 ANSWER_FEEDBACK_LOG = FEEDBACK_ROOT / "answer_feedback.jsonl"
@@ -791,6 +792,40 @@ def _persist_realtime_flight_record(question: str, answer_text: str, card) -> di
     return {"path": rel, **sync}
 
 
+def _load_flight_field_mappings() -> dict[str, str]:
+    path = _safe_doc_path(FLIGHT_FIELD_MAPPING_DOC_REL)
+    if not path.exists() or not path.is_file():
+        return {}
+
+    rows: list[str]
+    try:
+        rows = path.read_text(encoding="utf-8").splitlines()
+    except UnicodeDecodeError:
+        rows = path.read_bytes().decode("gb18030", errors="ignore").splitlines()
+
+    mappings: dict[str, str] = {}
+    for raw in rows:
+        line = raw.strip()
+        if not line.startswith("|"):
+            continue
+        # 跳过表头和分隔行
+        lowered = line.replace(" ", "").lower()
+        if "字段名" in line and "信息映射" in line:
+            continue
+        if lowered.startswith("|:---") or lowered.startswith("|---"):
+            continue
+
+        parts = [p.strip() for p in line.strip("|").split("|")]
+        if len(parts) < 2:
+            continue
+        key = parts[0]
+        label = parts[1]
+        if not key or not label:
+            continue
+        mappings[key] = label
+    return mappings
+
+
 def _split_realtime_result(result: Any) -> tuple[str, Any, dict[str, Any]]:
     if not isinstance(result, (tuple, list)):
         raise ValueError("invalid realtime result")
@@ -1115,6 +1150,16 @@ def ingest_default() -> IngestResponse:
         return service.ingest("./data/documents")
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/flight/field-mappings")
+def flight_field_mappings() -> dict:
+    mappings = _load_flight_field_mappings()
+    return {
+        "source_path": FLIGHT_FIELD_MAPPING_DOC_REL,
+        "total": len(mappings),
+        "mappings": mappings,
+    }
 
 
 @app.post("/flight/realtime")

@@ -2,6 +2,15 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-04 11:22:45 +0800
+
+- 提交：`refactor(realtime): load field labels from documents mapping`
+- 变更文件：
+  - `src/airport_rag/api.py`
+  - `src/airport_rag/static/index.html`
+  - `tests/test_realtime_flight_api.py`
+- 备注：移除前端硬编码字段映射，新增/flight/field-mappings从data/documents/airport/实时航班/航班字段读取映射并前端动态加载；补充接口测试。
+
 ## 2026-04-04 11:12:42 +0800
 
 - 提交：`feat(realtime): map detailed flight fields and add detail toggle UI`

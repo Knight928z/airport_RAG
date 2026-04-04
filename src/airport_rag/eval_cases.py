@@ -35,6 +35,42 @@ SELF_TEST_SEED_CASES: list[dict[str, str]] = [
     {"topic": "航司", "question": "春秋航空是全经济舱吗？", "expect": "answer"},
     {"topic": "航司", "question": "春秋航空是否提供免费餐饮？", "expect": "answer"},
     {"topic": "航司", "question": "春秋航空客服电话是多少？", "expect": "low-confidence"},
+
+    # 新增 25 题（展开后新增 100 题）
+    # 海关（+5）
+    {"topic": "海关", "question": "入境旅客现金达到什么标准要申报？", "expect": "answer"},
+    {"topic": "海关", "question": "海关红通道适用于哪些情形？", "expect": "answer"},
+    {"topic": "海关", "question": "绿色通道是不是就一定不用申报？", "expect": "answer"},
+    {"topic": "海关", "question": "海关值班电话是多少？", "expect": "low-confidence"},
+    {"topic": "海关", "question": "海关现场办理一般排队多久？", "expect": "low-confidence"},
+
+    # 边防（+5）
+    {"topic": "边防", "question": "外国籍港澳居民入境内地每次最多停留多少天？", "expect": "answer"},
+    {"topic": "边防", "question": "外国人入境卡必须填写吗？", "expect": "answer"},
+    {"topic": "边防", "question": "港澳居民来往内地应持哪些证件？", "expect": "answer"},
+    {"topic": "边防", "question": "边检窗口具体在几号柜台？", "expect": "low-confidence"},
+    {"topic": "边防", "question": "边检高峰时段平均等候时间多久？", "expect": "low-confidence"},
+
+    # 出发（+5）
+    {"topic": "出发", "question": "国内航班建议提前多长时间到航站楼？", "expect": "answer"},
+    {"topic": "出发", "question": "国际航班出发通常提前多久到机场？", "expect": "answer"},
+    {"topic": "出发", "question": "值机柜台关闭时间有统一标准吗？", "expect": "low-confidence"},
+    {"topic": "出发", "question": "机场吸烟室在什么位置？", "expect": "low-confidence"},
+    {"topic": "出发", "question": "登机口开放时间是固定的吗？", "expect": "low-confidence"},
+
+    # 行李（+5）
+    {"topic": "行李", "question": "100Wh以下充电宝可以随身带吗？", "expect": "answer"},
+    {"topic": "行李", "question": "150Wh充电宝是否需要航司同意？", "expect": "answer"},
+    {"topic": "行李", "question": "超过160Wh的充电宝还能带上飞机吗？", "expect": "answer"},
+    {"topic": "行李", "question": "打火机能不能随身过安检？", "expect": "answer"},
+    {"topic": "行李", "question": "托运行李超重收费标准是多少元每公斤？", "expect": "low-confidence"},
+
+    # 航司（+5）
+    {"topic": "航司", "question": "南航官方客服热线电话是多少？", "expect": "answer"},
+    {"topic": "航司", "question": "南航境外客服电话怎么联系？", "expect": "answer"},
+    {"topic": "航司", "question": "春秋航空是否只有经济舱？", "expect": "answer"},
+    {"topic": "航司", "question": "春秋航空提供免费机上餐食吗？", "expect": "answer"},
+    {"topic": "航司", "question": "春秋航空最新客服电话号码是多少？", "expect": "low-confidence"},
 ]
 
 

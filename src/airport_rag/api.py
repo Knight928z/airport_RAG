@@ -1241,6 +1241,11 @@ def admin_patch_review_merge(cleanup: bool = True) -> dict:
 
 @app.get("/self-test")
 def self_test() -> dict:
+    try:
+        service.ingest("./data/documents")
+    except Exception:
+        pass
+
     results = []
     passed = 0
     topic_scores = {

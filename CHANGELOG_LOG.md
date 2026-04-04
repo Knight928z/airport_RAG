@@ -2,6 +2,15 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-04 11:01:58 +0800
+
+- 提交：`feat(eval): add 100 more self-test cases and optimize rules`
+- 变更文件：
+  - `src/airport_rag/api.py`
+  - `src/airport_rag/eval_cases.py`
+  - `src/airport_rag/rules.py`
+- 备注：新增25个seed题（展开后+100题，总200题）；修复边检窗口/排队与登机口开放时间低置信口径、补充100Wh充电宝随身规则、self-test预热入库；回归200/200通过
+
 ## 2026-04-04 10:51:27 +0800
 
 - 提交：`refactor(eval): centralize qa test cases into one module`

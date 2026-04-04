@@ -393,6 +393,24 @@ def build_document_lookup_answer(question: str) -> RuleResult | None:
                 return s
         return ""
 
+    if any(k in q for k in ["边检", "边防"]) and any(k in q for k in ["几号柜台", "窗口", "排队", "等候", "高峰时段"]):
+        lines = [
+            "结论：当前知识库未提供边检窗口号或高峰排队时长的可核验数据。",
+            "依据：现有文档主要提供证件与通关规则，未给出实时队列与窗口号信息。",
+            "执行建议：请以现场边检指引屏和工作人员公告为准。",
+            "风险提示：窗口分配与排队时长受实时流量影响大，需人工复核。",
+        ]
+        return RuleResult(answer="\n".join(lines), note="low-confidence", evidence_chunk_ids=[])
+
+    if "登机口" in q and any(k in q for k in ["开放时间", "固定", "几点开放"]):
+        lines = [
+            "结论：登机口开放时间通常不固定，需以航班当天通知为准。",
+            "依据：知识库未提供统一固定的登机口开放时刻标准。",
+            "执行建议：请关注值机单、机场屏显与航司推送通知。",
+            "风险提示：不同航班/机位调整会导致登机安排变化，需人工复核。",
+        ]
+        return RuleResult(answer="\n".join(lines), note="low-confidence", evidence_chunk_ids=[])
+
     if "吸烟" in q and any(k in q for k in ["区", "室", "可以", "有", "在哪"]):
         lines = [
             "结论：当前知识库未检索到可核验的白云机场吸烟区位置与开放状态信息。",
@@ -474,6 +492,20 @@ def build_document_lookup_answer(question: str) -> RuleResult | None:
                 "风险提示：特殊设备（如电动轮椅电池）适用专门条款，需人工复核。",
             ]
             return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[])
+
+    if any(k in q for k in ["充电宝", "锂电池"]) and re.search(r"100\s*wh", q) and any(k in q for k in ["随身", "携带", "可以", "能", "带"]):
+        txt = _read("民航旅客限制随身携带或托运物品目录")
+        line = _pick_line(txt, ["100Wh"]) or _pick_line(txt, ["100wh"]) or _pick_line(txt, ["额定能量"])
+        if not line:
+            line = "额定能量不超过100Wh的充电宝通常可随身携带。"
+        lines = [
+            f"结论：{line}",
+            "依据：",
+            f"- [1] {line}（来源：data/documents/airport/民航旅客限制随身携带或托运物品目录）",
+            "执行建议：请在过检时配合核验额定能量标识，且不要托运充电宝。",
+            "风险提示：现场安检可能依据包装标识与设备状态从严判定。",
+        ]
+        return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[])
 
     if "打火机" in q and any(k in q for k in ["随身", "携带", "能", "可以", "带"]):
         txt = _read("民航旅客限制随身携带或托运物品目录")

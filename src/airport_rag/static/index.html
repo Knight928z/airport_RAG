@@ -115,6 +115,9 @@
       .error {
         color: var(--danger);
       }
+      .hidden {
+        display: none;
+      }
       .feedback-row {
         display: flex;
         gap: 8px;
@@ -138,6 +141,27 @@
         background: #eef2ff;
         border-radius: 6px;
         padding: 1px 6px;
+      }
+      .flight-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(180px, 1fr));
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .flight-cell {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px 10px;
+        background: #fbfdff;
+      }
+      .flight-label {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .flight-value {
+        margin-top: 4px;
+        font-weight: 600;
+        font-size: 14px;
       }
     </style>
   </head>
@@ -195,6 +219,23 @@
         </div>
       </section>
 
+      <section id="realtime-flight-card" class="card hidden">
+        <div class="row" style="justify-content: space-between; align-items: center;">
+          <strong>实时航班卡片</strong>
+          <span class="badge">来源：VariFlight MCP</span>
+        </div>
+        <div class="flight-grid">
+          <div class="flight-cell"><div class="flight-label">航班号</div><div id="flight-no" class="flight-value">-</div></div>
+          <div class="flight-cell"><div class="flight-label">状态</div><div id="flight-status" class="flight-value">-</div></div>
+          <div class="flight-cell"><div class="flight-label">计划起飞</div><div id="flight-planned-dep" class="flight-value">-</div></div>
+          <div class="flight-cell"><div class="flight-label">实际起飞</div><div id="flight-actual-dep" class="flight-value">-</div></div>
+          <div class="flight-cell"><div class="flight-label">计划到达</div><div id="flight-planned-arr" class="flight-value">-</div></div>
+          <div class="flight-cell"><div class="flight-label">实际到达</div><div id="flight-actual-arr" class="flight-value">-</div></div>
+          <div class="flight-cell"><div class="flight-label">延误分钟</div><div id="flight-delay" class="flight-value">-</div></div>
+          <div class="flight-cell"><div class="flight-label">航站楼 / 登机口</div><div id="flight-terminal-gate" class="flight-value">-</div></div>
+        </div>
+      </section>
+
       <section class="card">
         <strong>引用依据</strong>
         <ol id="citations" class="citations"></ol>
@@ -217,6 +258,15 @@
   const correctedAnswerEl = document.getElementById('corrected-answer');
   const submitCorrectionBtn = document.getElementById('btn-submit-correction');
   const feedbackStatusEl = document.getElementById('feedback-status');
+  const flightCardEl = document.getElementById('realtime-flight-card');
+  const flightNoEl = document.getElementById('flight-no');
+  const flightStatusEl = document.getElementById('flight-status');
+  const flightPlannedDepEl = document.getElementById('flight-planned-dep');
+  const flightActualDepEl = document.getElementById('flight-actual-dep');
+  const flightPlannedArrEl = document.getElementById('flight-planned-arr');
+  const flightActualArrEl = document.getElementById('flight-actual-arr');
+  const flightDelayEl = document.getElementById('flight-delay');
+  const flightTerminalGateEl = document.getElementById('flight-terminal-gate');
 
   let lastResponse = null;
 
@@ -249,6 +299,31 @@
       function setConfidence(note) {
         const label = note || 'unknown';
         confidenceEl.textContent = `状态：${label}`;
+      }
+
+      function isRealtimeFlightQuestion(question) {
+        const q = (question || '').toLowerCase();
+        const hasKeyword = ['实时', '动态', '延误', '起飞', '降落', '到达', '登机口', 'status', 'delay', 'realtime'].some(k => q.includes(k));
+        const hasFlightNo = /\b[a-z]{2}\s?\d{3,4}\b/i.test(question || '');
+        return hasKeyword || hasFlightNo;
+      }
+
+      function renderRealtimeFlightCard(card) {
+        if (!card) {
+          flightCardEl.classList.add('hidden');
+          return;
+        }
+        flightNoEl.textContent = card.flight_no || '-';
+        flightStatusEl.textContent = card.status || '-';
+        flightPlannedDepEl.textContent = card.planned_departure || '-';
+        flightActualDepEl.textContent = card.actual_departure || '-';
+        flightPlannedArrEl.textContent = card.planned_arrival || '-';
+        flightActualArrEl.textContent = card.actual_arrival || '-';
+        flightDelayEl.textContent = card.delay_minutes === null || card.delay_minutes === undefined ? '-' : String(card.delay_minutes);
+        const terminal = card.terminal || '-';
+        const gate = card.gate || '-';
+        flightTerminalGateEl.textContent = `${terminal} / ${gate}`;
+        flightCardEl.classList.remove('hidden');
       }
 
       async function submitFeedback(rating, correctedAnswer = '') {
@@ -320,7 +395,7 @@
         setConfidence('processing');
 
         try {
-          if (autoSyncEl.checked) {
+          if (autoSyncEl.checked && !isRealtimeFlightQuestion(question)) {
             await ingestDefault(false);
           }
 
@@ -337,11 +412,13 @@
           answerEl.textContent = data.answer;
           renderCitations(data.citations);
           setConfidence(data.confidence_note || 'unknown');
+          renderRealtimeFlightCard(data.realtime_flight || null);
           feedbackStatusEl.textContent = '';
         } catch (err) {
           setError(`问答失败：${err.message}`);
           renderCitations([]);
           setConfidence('error');
+          renderRealtimeFlightCard(null);
           lastResponse = null;
         } finally {
           askBtn.disabled = false;

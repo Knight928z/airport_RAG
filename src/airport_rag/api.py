@@ -20,12 +20,14 @@ from .schemas import (
     AnswerFeedbackResponse,
     AskRequest,
     AskResponse,
+    FlightRealtimeRequest,
     HealthResponse,
     IngestRequest,
     IngestResponse,
 )
 from .service import AirportRAGService
 from .ingest import extract_text_from_image
+from .realtime_flight import query_realtime_flight
 
 
 app = FastAPI(title="Airport KB RAG Assistant", version="1.0.0")
@@ -1098,9 +1100,47 @@ def ingest_default() -> IngestResponse:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.post("/flight/realtime")
+def flight_realtime(req: FlightRealtimeRequest) -> dict:
+    question = (req.question or "").strip()
+    flight_no = (req.flight_no or "").strip() or None
+    if not question and flight_no:
+        question = f"{flight_no} 实时航班状态"
+    if not question:
+        raise HTTPException(status_code=400, detail="question 或 flight_no 至少提供一个")
+
+    try:
+        result = query_realtime_flight(question=question, flight_no=flight_no)
+        if result is None:
+            raise HTTPException(status_code=404, detail="未识别为实时航班查询问题")
+        answer_text, card = result
+        return {
+            "question": question,
+            "answer": answer_text,
+            "confidence_note": "realtime-flight",
+            "realtime_flight": card.model_dump(),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"实时航班查询失败: {exc}") from exc
+
+
 @app.post("/ask", response_model=AskResponse)
 def ask(req: AskRequest) -> AskResponse:
     try:
+        realtime_result = query_realtime_flight(question=req.question)
+        if realtime_result is not None:
+            answer_text, card = realtime_result
+            return AskResponse(
+                answer_id=str(uuid4()),
+                question=req.question,
+                answer=answer_text,
+                citations=[],
+                confidence_note="realtime-flight",
+                realtime_flight=card,
+            )
+
         result = service.ask(req.question, req.top_k)
         answer_id = str(uuid4())
         result.answer_id = answer_id

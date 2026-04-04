@@ -2,6 +2,20 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-04 10:17:33 +0800
+
+- 提交：`feat(realtime): integrate MCP flight card and local private secrets`
+- 变更文件：
+  - `.env.example`
+  - `README.md`
+  - `src/airport_rag/api.py`
+  - `src/airport_rag/config.py`
+  - `src/airport_rag/realtime_flight.py`
+  - `src/airport_rag/schemas.py`
+  - `src/airport_rag/static/index.html`
+  - `tests/test_realtime_flight_api.py`
+- 备注：接入 VariFlight MCP 实时航班标准化卡片；新增本地私有明文密钥文件加载(data/private)并保持不入Git
+
 ## 2026-04-04 08:09:41 +0800
 
 - 提交：`feat(admin): add ocr manual review panel`

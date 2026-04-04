@@ -40,6 +40,20 @@
   - `patch_audit.jsonl`：补丁治理审计日志（applied/deduplicated/merged/review-merged）
   - `uncovered_questions.jsonl`：未覆盖问题记录
 
+### 本地私有明文 API（仅本机，不入 Git）
+
+- 项目默认会额外读取一个本地私有配置文件：`data/private/local.secrets.env`
+- 该目录在 `.gitignore` 下，不会被提交；适合存放明文 API Key（如 MCP、第三方航班服务）
+- 可通过 `RAG_PRIVATE_SECRETS_FILE` 指定自定义私有文件路径
+
+示例（`data/private/local.secrets.env`）：
+
+```bash
+VARIFLIGHT_MCP_URL=https://ai.variflight.com/servers/aviation/mcp/
+VARIFLIGHT_MCP_API_KEY=your-local-key
+VARIFLIGHT_MCP_TIMEOUT=10
+```
+
 ## 快速开始
 
 1. 安装依赖
@@ -62,6 +76,7 @@
 - `GET /admin`：管理人员文档后台页面（可视化文档管理）
 - `GET /admin/patches`：补丁治理面板（统计与审核）
 - `GET /admin/ocr-review`：OCR 人工校对面板（侧车文本复核与入库同步）
+- `POST /flight/realtime`：实时航班查询（MCP，返回标准化航班卡片字段）
 - `POST /ingest`：文档入库
 - `POST /ingest/default`：一键同步 `data/documents` 到知识库
 - `POST /ask`：RAG 问答
@@ -81,6 +96,18 @@
 - `GET /admin/search?q=...`：关键词搜索（路径 + 内容片段）
 - `POST /admin/docs/bulk`：批量上传（支持拖拽上传，多文件自动分类）
   - 当上传图片文件时，会自动执行 OCR，并生成同目录侧车文本：`<原文件名>.ocr.md`，该文本会参与后续检索与问答。
+
+实时航班（MCP）说明：
+
+- 当问题包含航班号（如 `MU2456`）或实时航班关键词（如“延误/起飞/到达/动态”）时，`POST /ask` 会优先调用 VariFlight MCP。
+- `/ask` 的响应会增加 `realtime_flight` 字段（可能为 `null`），用于前端实时航班卡片展示。
+- 标准化字段：`flight_no`、`planned_departure`、`actual_departure`、`planned_arrival`、`actual_arrival`、`delay_minutes`、`terminal`、`gate`、`status`。
+
+建议使用环境变量配置 MCP（不要在代码中硬编码 API Key）：
+
+- `VARIFLIGHT_MCP_URL`（默认 `https://ai.variflight.com/servers/aviation/mcp/`）
+- `VARIFLIGHT_MCP_API_KEY`（必填，推荐）
+- `VARIFLIGHT_MCP_TIMEOUT`（默认 `10` 秒）
 
 OCR 人工校对 API：
 

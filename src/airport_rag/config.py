@@ -2,11 +2,17 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 
 load_dotenv()
+
+_DEFAULT_PRIVATE_ENV = Path(__file__).resolve().parents[2] / "data" / "private" / "local.secrets.env"
+_private_env_path = os.getenv("RAG_PRIVATE_SECRETS_FILE", str(_DEFAULT_PRIVATE_ENV))
+if _private_env_path:
+    load_dotenv(dotenv_path=_private_env_path, override=False)
 
 
 @dataclass

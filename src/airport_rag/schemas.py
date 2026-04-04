@@ -24,6 +24,24 @@ class AskResponse(BaseModel):
     answer: str
     citations: List[Citation]
     confidence_note: str
+    realtime_flight: Optional["RealtimeFlightCard"] = None
+
+
+class RealtimeFlightCard(BaseModel):
+    flight_no: str
+    status: Optional[str] = None
+    planned_departure: Optional[str] = None
+    actual_departure: Optional[str] = None
+    planned_arrival: Optional[str] = None
+    actual_arrival: Optional[str] = None
+    delay_minutes: Optional[int] = None
+    terminal: Optional[str] = None
+    gate: Optional[str] = None
+
+
+class FlightRealtimeRequest(BaseModel):
+    question: Optional[str] = None
+    flight_no: Optional[str] = None
 
 
 class AnswerFeedbackRequest(BaseModel):

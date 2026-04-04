@@ -2,6 +2,17 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-04 08:09:41 +0800
+
+- 提交：`feat(admin): add ocr manual review panel`
+- 变更文件：
+  - `README.md`
+  - `src/airport_rag/api.py`
+  - `src/airport_rag/static/admin.html`
+  - `src/airport_rag/static/ocr_review.html`
+  - `tests/test_admin_ocr_review.py`
+- 备注：新增 OCR 人工校对面板、API、测试与文档
+
 ## 2026-04-04 07:57:27 +0800
 
 - 提交：`feat(admin): add OCR support for image document ingestion`

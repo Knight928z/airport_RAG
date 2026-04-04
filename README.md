@@ -61,6 +61,7 @@
 - `GET /app`：普通人员可用的问答前端页面
 - `GET /admin`：管理人员文档后台页面（可视化文档管理）
 - `GET /admin/patches`：补丁治理面板（统计与审核）
+- `GET /admin/ocr-review`：OCR 人工校对面板（侧车文本复核与入库同步）
 - `POST /ingest`：文档入库
 - `POST /ingest/default`：一键同步 `data/documents` 到知识库
 - `POST /ask`：RAG 问答
@@ -80,6 +81,11 @@
 - `GET /admin/search?q=...`：关键词搜索（路径 + 内容片段）
 - `POST /admin/docs/bulk`：批量上传（支持拖拽上传，多文件自动分类）
   - 当上传图片文件时，会自动执行 OCR，并生成同目录侧车文本：`<原文件名>.ocr.md`，该文本会参与后续检索与问答。
+
+OCR 人工校对 API：
+
+- `GET /admin/ocr-review/items`：列出 OCR 侧车文本、关联原文件、是否过期（原文件更新后未复核）
+- `PUT /admin/ocr-review/content?path=...`：保存 OCR 校对文本（可选自动同步入库）
 
 补丁治理 API：
 

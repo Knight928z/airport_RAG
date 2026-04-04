@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OCR 人工校对面板</title>
+    <style>
+      :root { --bg:#f6f8fc; --card:#fff; --line:#dfe6f5; --text:#1f2a44; --muted:#66708a; --primary:#225cff; --danger:#d94848; }
+      * { box-sizing: border-box; }
+      body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); }
+      .wrap { max-width:1220px; margin:0 auto; padding:20px; }
+      .grid { display:grid; grid-template-columns: 360px 1fr; gap:14px; }
+      .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; }
+      h1 { margin:0 0 8px; font-size:24px; }
+      h2 { margin:0 0 10px; font-size:16px; }
+      .muted { color:var(--muted); font-size:13px; }
+      .tiny { font-size:12px; color:var(--muted); }
+      .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+      button { border:none; background:var(--primary); color:#fff; border-radius:8px; padding:8px 12px; cursor:pointer; }
+      button.secondary { background:#51607f; }
+      button:disabled { opacity:.7; cursor:not-allowed; }
+      textarea { width:100%; min-height:260px; border:1px solid var(--line); border-radius:8px; padding:10px; resize:vertical; }
+      .list { max-height:640px; overflow:auto; border:1px solid var(--line); border-radius:8px; }
+      .item { padding:8px 10px; border-bottom:1px solid var(--line); cursor:pointer; }
+      .item:hover { background:#f2f6ff; }
+      .item.active { background:#e9f0ff; }
+      .badge { display:inline-block; font-size:11px; border:1px solid var(--line); border-radius:999px; padding:1px 8px; margin-right:6px; }
+      .badge.warn { border-color:#f2bc27; color:#996b00; background:#fff8df; }
+      .status { margin-top:8px; font-size:13px; }
+      .status.error { color:var(--danger); }
+      iframe { width:100%; height:300px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+      .split { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+      input[type="search"] { width:100%; border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>OCR 人工校对面板</h1>
+      <p class="muted">针对图片上传后生成的 <code>.ocr.md</code> 文本进行人工校对，保存后可一键同步入库。</p>
+      <p class="muted">
+        <a href="/admin" style="color:#225cff;text-decoration:none;">← 返回文档管理后台</a>
+        &nbsp;|&nbsp;
+        <a href="/admin/patches" style="color:#225cff;text-decoration:none;">补丁治理面板 →</a>
+      </p>
+
+      <div class="grid">
+        <section class="card">
+          <div class="row" style="justify-content:space-between;">
+            <h2>待校对 OCR 列表</h2>
+            <button id="btn-refresh" class="secondary">刷新</button>
+          </div>
+          <input id="search" type="search" placeholder="按路径搜索 OCR 侧车文件" />
+          <p id="summary" class="tiny" style="margin-top:8px;">-</p>
+          <div id="list" class="list"></div>
+        </section>
+
+        <section class="card">
+          <h2>校对编辑</h2>
+          <div class="tiny" id="meta" style="margin-bottom:8px;">请选择左侧条目</div>
+          <label class="tiny" style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+            <input id="auto-sync" type="checkbox" checked style="width:auto;" /> 保存后自动同步入库
+          </label>
+
+          <div class="split">
+            <div>
+              <div class="tiny" style="margin-bottom:6px;">OCR 文本（可编辑）</div>
+              <textarea id="content" placeholder="请选择左侧 OCR 条目"></textarea>
+            </div>
+            <div>
+              <div class="tiny" style="margin-bottom:6px;">原图/原文件预览</div>
+              <iframe id="preview" src="about:blank"></iframe>
+              <div id="preview-hint" class="tiny" style="margin-top:6px;"></div>
+            </div>
+          </div>
+
+          <div class="row" style="margin-top:10px;">
+            <button id="btn-save" disabled>保存校对结果</button>
+          </div>
+          <div id="status" class="status"></div>
+        </section>
+      </div>
+    </div>
+
+    <script>
+      const listEl = document.getElementById('list');
+      const summaryEl = document.getElementById('summary');
+      const searchEl = document.getElementById('search');
+      const contentEl = document.getElementById('content');
+      const metaEl = document.getElementById('meta');
+      const previewEl = document.getElementById('preview');
+      const previewHintEl = document.getElementById('preview-hint');
+      const statusEl = document.getElementById('status');
+      const btnSave = document.getElementById('btn-save');
+      const autoSyncEl = document.getElementById('auto-sync');
+
+      let items = [];
+      let active = null;
+
+      function setStatus(msg, isError=false) {
+        statusEl.textContent = msg;
+        statusEl.className = isError ? 'status error' : 'status';
+      }
+
+      function fmtTs(ts) {
+        if (!ts) return '-';
+        return new Date(ts * 1000).toLocaleString();
+      }
+
+      function renderList() {
+        const q = (searchEl.value || '').trim().toLowerCase();
+        const filtered = q ? items.filter(it => it.ocr_path.toLowerCase().includes(q) || (it.source_path || '').toLowerCase().includes(q)) : items;
+        summaryEl.textContent = `共 ${items.length} 条，当前显示 ${filtered.length} 条`;
+        listEl.innerHTML = '';
+
+        if (filtered.length === 0) {
+          listEl.innerHTML = '<div class="tiny" style="padding:10px;">暂无匹配条目</div>';
+          return;
+        }
+
+        filtered.forEach(it => {
+          const el = document.createElement('div');
+          el.className = 'item' + (active && active.ocr_path === it.ocr_path ? ' active' : '');
+          el.innerHTML = `
+            <div><strong>${it.ocr_path}</strong></div>
+            <div class="tiny" style="margin-top:4px;">
+              ${it.stale ? '<span class="badge warn">原文件更新后未复核</span>' : '<span class="badge">已同步状态</span>'}
+              <span class="badge">${it.chars || 0} 字</span>
+            </div>
+            <div class="tiny" style="margin-top:4px;">原文件：${it.source_path || '-'}<br>OCR更新时间：${fmtTs(it.updated_at)}</div>
+          `;
+          el.onclick = () => loadItem(it);
+          listEl.appendChild(el);
+        });
+      }
+
+      async function refreshItems() {
+        const res = await fetch('/admin/ocr-review/items');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '加载OCR列表失败');
+        items = data.items || [];
+        renderList();
+      }
+
+      async function loadItem(item) {
+        active = item;
+        renderList();
+        btnSave.disabled = true;
+        contentEl.value = '';
+        previewEl.src = item.source_preview_url || 'about:blank';
+        previewHintEl.textContent = item.source_exists
+          ? `原文件类型：${item.source_media_type || 'unknown'} ｜ 原文件更新时间：${fmtTs(item.source_updated_at)}`
+          : '原文件不存在，请检查路径。';
+
+        const res = await fetch(`/admin/docs/content?path=${encodeURIComponent(item.ocr_path)}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '读取OCR文本失败');
+
+        contentEl.value = data.content || '';
+        metaEl.textContent = `当前文件：${item.ocr_path}`;
+        btnSave.disabled = false;
+        setStatus(`已加载：${item.ocr_path}`);
+      }
+
+      async function saveItem() {
+        if (!active) return;
+        btnSave.disabled = true;
+        try {
+          const res = await fetch(`/admin/ocr-review/content?path=${encodeURIComponent(active.ocr_path)}`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ content: contentEl.value, auto_sync: autoSyncEl.checked }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || '保存失败');
+          setStatus(`保存成功：${data.path}${data.synced ? `（已同步，chunks=${data.indexed_chunks}）` : ''}`);
+          await refreshItems();
+          const updated = items.find(x => x.ocr_path === active.ocr_path);
+          if (updated) active = updated;
+          renderList();
+        } catch (err) {
+          setStatus(`保存失败：${err.message}`, true);
+        } finally {
+          btnSave.disabled = false;
+        }
+      }
+
+      document.getElementById('btn-refresh').onclick = () => refreshItems().then(() => setStatus('列表已刷新')).catch(err => setStatus(err.message, true));
+      btnSave.onclick = saveItem;
+      searchEl.oninput = renderList;
+
+      (async () => {
+        try {
+          await refreshItems();
+          setStatus('就绪');
+        } catch (err) {
+          setStatus(err.message, true);
+        }
+      })();
+    </script>
+  </body>
+</html>

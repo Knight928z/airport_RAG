@@ -558,6 +558,14 @@ def admin_patches_home() -> FileResponse:
     return FileResponse(page_file)
 
 
+@app.get("/admin/ocr-review")
+def admin_ocr_review_home() -> FileResponse:
+    page_file = STATIC_DIR / "ocr_review.html"
+    if not page_file.exists():
+        raise HTTPException(status_code=404, detail="OCR review page not found")
+    return FileResponse(page_file)
+
+
 class AdminClassifyRequest(BaseModel):
     filename: str = Field(min_length=1)
     content: str = ""
@@ -595,6 +603,14 @@ def _safe_doc_path(relative_path: str) -> Path:
     if DOC_ROOT not in candidate.parents and candidate != DOC_ROOT:
         raise HTTPException(status_code=400, detail="invalid path")
     return candidate
+
+
+def _safe_ocr_sidecar_path(relative_path: str) -> Path:
+    full = _safe_doc_path(relative_path)
+    rel = full.relative_to(DOC_ROOT).as_posix().lower()
+    if not rel.endswith(".ocr.md"):
+        raise HTTPException(status_code=400, detail="path must be an .ocr.md sidecar file")
+    return full
 
 
 def _safe_patch_path(relative_path: str) -> Path:
@@ -938,6 +954,69 @@ def admin_get_doc_content(path: str = Query(..., min_length=1)) -> dict:
         "editable": False,
         "preview_url": preview_url,
     }
+
+
+@app.get("/admin/ocr-review/items")
+def admin_list_ocr_review_items(limit: int = Query(200, ge=1, le=1000)) -> dict:
+    DOC_ROOT.mkdir(parents=True, exist_ok=True)
+    items = []
+    for p in DOC_ROOT.rglob("*.ocr.md"):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(DOC_ROOT).as_posix()
+        if any(part.startswith(".") for part in rel.split("/")):
+            continue
+
+        source_rel = rel[:-7]
+        source_path = _safe_doc_path(source_rel)
+        source_exists = source_path.exists() and source_path.is_file()
+
+        stat = p.stat()
+        source_updated_at = int(source_path.stat().st_mtime) if source_exists else None
+        stale = bool(source_exists and source_updated_at and source_updated_at > int(stat.st_mtime))
+
+        chars = 0
+        try:
+            chars = len(p.read_text(encoding="utf-8").strip())
+        except UnicodeDecodeError:
+            try:
+                chars = len(p.read_bytes().decode("gb18030", errors="ignore").strip())
+            except Exception:
+                chars = 0
+
+        items.append(
+            {
+                "ocr_path": rel,
+                "source_path": source_rel,
+                "source_exists": source_exists,
+                "source_media_type": _guess_media_type(source_path) if source_exists else None,
+                "source_preview_url": f"/admin/docs/raw?path={source_rel}",
+                "ocr_content_url": f"/admin/docs/content?path={rel}",
+                "chars": chars,
+                "updated_at": int(stat.st_mtime),
+                "source_updated_at": source_updated_at,
+                "stale": stale,
+            }
+        )
+
+    items.sort(key=lambda x: (not x["stale"], -x["updated_at"], x["ocr_path"]))
+    return {
+        "root": str(DOC_ROOT),
+        "total": len(items),
+        "items": items[:limit],
+    }
+
+
+@app.put("/admin/ocr-review/content")
+def admin_update_ocr_review_content(path: str = Query(..., min_length=1), req: AdminUpdateDocRequest = None) -> dict:
+    if req is None:
+        raise HTTPException(status_code=400, detail="request body required")
+    full = _safe_ocr_sidecar_path(path)
+    if not full.exists() or not full.is_file():
+        raise HTTPException(status_code=404, detail="ocr sidecar not found")
+    full.write_text(req.content or "", encoding="utf-8")
+    sync_result = _sync_if_needed(req.auto_sync)
+    return {"path": full.relative_to(DOC_ROOT).as_posix(), **sync_result}
 
 
 @app.get("/admin/docs/raw")

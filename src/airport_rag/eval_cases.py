@@ -1,0 +1,62 @@
+from __future__ import annotations
+
+SELF_TEST_SEED_CASES: list[dict[str, str]] = [
+    # 海关（6）
+    {"topic": "海关", "question": "入境最多能携带多少现金？", "expect": "answer"},
+    {"topic": "海关", "question": "人民币和外币现金分别超过多少需要申报？", "expect": "answer"},
+    {"topic": "海关", "question": "红色通道和绿色通道怎么选择？", "expect": "answer"},
+    {"topic": "海关", "question": "海关申报单在什么情况下必须填写？", "expect": "answer"},
+    {"topic": "海关", "question": "海关罚款标准是多少钱？", "expect": "low-confidence"},
+    {"topic": "海关", "question": "海关窗口晚上几点下班？", "expect": "low-confidence"},
+
+    # 边防（5）
+    {"topic": "边防", "question": "港澳居民来往内地应该持什么证件？", "expect": "answer"},
+    {"topic": "边防", "question": "外国人入境是否需要填写入境卡？", "expect": "answer"},
+    {"topic": "边防", "question": "外国籍港澳居民来往内地能停留多久？", "expect": "answer"},
+    {"topic": "边防", "question": "外国人入境卡在哪里领取？", "expect": "low-confidence"},
+    {"topic": "边防", "question": "边检人工通道平均排队多久？", "expect": "low-confidence"},
+
+    # 出发（4）
+    {"topic": "出发", "question": "国际出发建议提前多久到达航站楼？", "expect": "answer"},
+    {"topic": "出发", "question": "国内出发建议提前多久到达航站楼？", "expect": "answer"},
+    {"topic": "出发", "question": "值机柜台一般什么时候关闭？", "expect": "low-confidence"},
+    {"topic": "出发", "question": "机场有吸烟区吗？", "expect": "low-confidence"},
+
+    # 行李（5）
+    {"topic": "行李", "question": "充电宝120Wh能带吗？", "expect": "answer"},
+    {"topic": "行李", "question": "超过160Wh充电宝能带吗？", "expect": "answer"},
+    {"topic": "行李", "question": "打火机可以随身携带吗？", "expect": "answer"},
+    {"topic": "行李", "question": "行李超重费用是多少？", "expect": "low-confidence"},
+    {"topic": "行李", "question": "托运行李每公斤加收多少钱？", "expect": "low-confidence"},
+
+    # 航司（CZ + 9C，共5）
+    {"topic": "航司", "question": "南航客服热线是多少？", "expect": "answer"},
+    {"topic": "航司", "question": "南航境外客服电话是多少？", "expect": "answer"},
+    {"topic": "航司", "question": "春秋航空是全经济舱吗？", "expect": "answer"},
+    {"topic": "航司", "question": "春秋航空是否提供免费餐饮？", "expect": "answer"},
+    {"topic": "航司", "question": "春秋航空客服电话是多少？", "expect": "low-confidence"},
+]
+
+
+QUICK_EVAL_QUESTIONS: list[str] = [
+    "我的充电宝150Wh能带吗？",
+    "我的充电宝170Wh能带吗？",
+    "国内出发需要提前多久到达？",
+    "国际出发一般提前多久到机场？",
+    "港澳居民来往内地能停留多久？",
+    "外国人入境是否需要填写入境卡？",
+    "南航客服热线是多少？",
+    "春秋航空有头等舱吗？",
+    "1岁小孩应该买什么票？",
+    "2岁小孩应该买什么票？",
+    "机场和航司行李规定有什么区别？",
+    "行李超重费用是多少？",
+    "白云机场海关红色通道适用于哪些旅客？",
+    "孕妇能否乘坐飞机？",
+    "emirates自愿取消航班能退款吗？",
+    "What is Emirates excess baggage policy?",
+    "Can I get a refund if I voluntarily cancel my Emirates flight?",
+    "国内出发值机柜台一般什么时候关闭？",
+    "外国人入境卡在哪领取？",
+    "入境最多能携带多少现金？",
+]

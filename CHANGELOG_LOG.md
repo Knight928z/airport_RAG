@@ -2,6 +2,14 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-04 10:51:27 +0800
+
+- 提交：`refactor(eval): centralize qa test cases into one module`
+- 变更文件：
+  - `src/airport_rag/api.py`
+  - `src/airport_rag/eval_cases.py`
+- 备注：将问答评测用例集中到 src/airport_rag/eval_cases.py，api自测与评测流程统一引用该模块
+
 ## 2026-04-04 10:47:41 +0800
 
 - 提交：`fix(eval): improve random-50 accuracy on edge intents`

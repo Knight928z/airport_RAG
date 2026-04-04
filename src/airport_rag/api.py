@@ -28,6 +28,7 @@ from .schemas import (
 from .service import AirportRAGService
 from .ingest import extract_text_from_image
 from .realtime_flight import query_realtime_flight, normalize_flight_no
+from .eval_cases import SELF_TEST_SEED_CASES
 
 
 app = FastAPI(title="Airport KB RAG Assistant", version="1.0.0")
@@ -469,42 +470,7 @@ def _record_uncovered_question(
     _append_jsonl(UNCOVERED_LOG, payload)
 
 
-SEED_SELF_TEST_CASES = [
-    # 海关（6）
-    {"topic": "海关", "question": "入境最多能携带多少现金？", "expect": "answer"},
-    {"topic": "海关", "question": "人民币和外币现金分别超过多少需要申报？", "expect": "answer"},
-    {"topic": "海关", "question": "红色通道和绿色通道怎么选择？", "expect": "answer"},
-    {"topic": "海关", "question": "海关申报单在什么情况下必须填写？", "expect": "answer"},
-    {"topic": "海关", "question": "海关罚款标准是多少钱？", "expect": "low-confidence"},
-    {"topic": "海关", "question": "海关窗口晚上几点下班？", "expect": "low-confidence"},
-
-    # 边防（5）
-    {"topic": "边防", "question": "港澳居民来往内地应该持什么证件？", "expect": "answer"},
-    {"topic": "边防", "question": "外国人入境是否需要填写入境卡？", "expect": "answer"},
-    {"topic": "边防", "question": "外国籍港澳居民来往内地能停留多久？", "expect": "answer"},
-    {"topic": "边防", "question": "外国人入境卡在哪里领取？", "expect": "low-confidence"},
-    {"topic": "边防", "question": "边检人工通道平均排队多久？", "expect": "low-confidence"},
-
-    # 出发（4）
-    {"topic": "出发", "question": "国际出发建议提前多久到达航站楼？", "expect": "answer"},
-    {"topic": "出发", "question": "国内出发建议提前多久到达航站楼？", "expect": "answer"},
-    {"topic": "出发", "question": "值机柜台一般什么时候关闭？", "expect": "low-confidence"},
-    {"topic": "出发", "question": "机场有吸烟区吗？", "expect": "low-confidence"},
-
-    # 行李（5）
-    {"topic": "行李", "question": "充电宝120Wh能带吗？", "expect": "answer"},
-    {"topic": "行李", "question": "超过160Wh充电宝能带吗？", "expect": "answer"},
-    {"topic": "行李", "question": "打火机可以随身携带吗？", "expect": "answer"},
-    {"topic": "行李", "question": "行李超重费用是多少？", "expect": "low-confidence"},
-    {"topic": "行李", "question": "托运行李每公斤加收多少钱？", "expect": "low-confidence"},
-
-    # 航司（CZ + 9C，共5）
-    {"topic": "航司", "question": "南航客服热线是多少？", "expect": "answer"},
-    {"topic": "航司", "question": "南航境外客服电话是多少？", "expect": "answer"},
-    {"topic": "航司", "question": "春秋航空是全经济舱吗？", "expect": "answer"},
-    {"topic": "航司", "question": "春秋航空是否提供免费餐饮？", "expect": "answer"},
-    {"topic": "航司", "question": "春秋航空客服电话是多少？", "expect": "low-confidence"},
-]
+SEED_SELF_TEST_CASES = SELF_TEST_SEED_CASES
 
 
 def _expand_self_test_cases(seed_cases: list[dict]) -> list[dict]:

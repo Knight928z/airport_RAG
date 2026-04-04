@@ -245,6 +245,68 @@ def _card_is_sparse(card: RealtimeFlightCard) -> bool:
     return all(v in (None, "") for v in fields) and card.delay_minutes is None
 
 
+def _score_detail_candidate(d: dict[str, Any]) -> int:
+    score = 0
+    for k, v in d.items():
+        if v in (None, "", [], {}):
+            continue
+        if isinstance(v, (str, int, float, bool)):
+            score += 1
+            lk = str(k).lower()
+            if any(token in lk for token in ("flight", "status", "delay", "gate", "terminal", "time", "date", "state")):
+                score += 1
+        elif isinstance(v, list) and v and all(isinstance(x, (str, int, float, bool)) for x in v):
+            score += 1
+    return score
+
+
+def _extract_detail_fields(result: dict[str, Any], text: str, card: RealtimeFlightCard) -> dict[str, Any]:
+    candidates: list[dict[str, Any]] = []
+    embedded = _parse_embedded_dict_from_text(text)
+    if embedded:
+        candidates.append(embedded)
+        data = embedded.get("data")
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict):
+                    candidates.append(item)
+
+    for d in _iter_dicts(result):
+        candidates.append(d)
+
+    best: dict[str, Any] | None = None
+    best_score = -1
+    for d in candidates:
+        s = _score_detail_candidate(d)
+        if s > best_score:
+            best = d
+            best_score = s
+
+    details: dict[str, Any] = {}
+    if best:
+        for k, v in best.items():
+            if v in (None, "", [], {}):
+                continue
+            if isinstance(v, (str, int, float, bool)):
+                details[str(k)] = v
+            elif isinstance(v, list) and v and all(isinstance(x, (str, int, float, bool)) for x in v):
+                details[str(k)] = ", ".join(str(x) for x in v)
+
+    if not details:
+        details = {
+            "flight_no": card.flight_no,
+            "status": card.status or "未知",
+            "planned_departure": card.planned_departure or "未知",
+            "actual_departure": card.actual_departure or "未知",
+            "planned_arrival": card.planned_arrival or "未知",
+            "actual_arrival": card.actual_arrival or "未知",
+            "delay_minutes": card.delay_minutes if card.delay_minutes is not None else "未知",
+            "terminal": card.terminal or "未知",
+            "gate": card.gate or "未知",
+        }
+    return details
+
+
 def _looks_like_tool_error(text: str) -> bool:
     t = (text or "").lower()
     return (
@@ -317,7 +379,7 @@ def _build_flight_card(result: dict[str, Any], fallback_flight_no: Optional[str]
     )
 
 
-def query_realtime_flight(question: str, flight_no: Optional[str] = None) -> tuple[str, RealtimeFlightCard] | None:
+def query_realtime_flight(question: str, flight_no: Optional[str] = None) -> tuple[str, RealtimeFlightCard, dict[str, Any]] | None:
     if not is_realtime_flight_question(question):
         return None
 
@@ -373,6 +435,8 @@ def query_realtime_flight(question: str, flight_no: Optional[str] = None) -> tup
         if embedded:
             card = _build_flight_card(embedded, guessed_flight_no)
 
+    details = _extract_detail_fields(result, text, card)
+
     if _looks_like_tool_error(text):
         raise RuntimeError(text)
 
@@ -389,4 +453,4 @@ def query_realtime_flight(question: str, flight_no: Optional[str] = None) -> tup
         ]
         text = "\n".join(lines)
 
-    return text, card
+    return text, card, details

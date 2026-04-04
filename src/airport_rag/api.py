@@ -6,7 +6,7 @@ import re
 import mimetypes
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form
@@ -791,6 +791,17 @@ def _persist_realtime_flight_record(question: str, answer_text: str, card) -> di
     return {"path": rel, **sync}
 
 
+def _split_realtime_result(result: Any) -> tuple[str, Any, dict[str, Any]]:
+    if not isinstance(result, (tuple, list)):
+        raise ValueError("invalid realtime result")
+    if len(result) < 2:
+        raise ValueError("invalid realtime result")
+    answer_text = result[0]
+    card = result[1]
+    details = result[2] if len(result) >= 3 and isinstance(result[2], dict) else {}
+    return answer_text, card, details
+
+
 @app.get("/admin/docs")
 def admin_list_docs() -> dict:
     DOC_ROOT.mkdir(parents=True, exist_ok=True)
@@ -1119,13 +1130,14 @@ def flight_realtime(req: FlightRealtimeRequest) -> dict:
         result = query_realtime_flight(question=question, flight_no=flight_no)
         if result is None:
             raise HTTPException(status_code=404, detail="未识别为实时航班查询问题")
-        answer_text, card = result
+        answer_text, card, details = _split_realtime_result(result)
         persisted = _persist_realtime_flight_record(question=question, answer_text=answer_text, card=card)
         return {
             "question": question,
             "answer": answer_text,
             "confidence_note": "realtime-flight",
             "realtime_flight": card.model_dump(),
+            "realtime_flight_details": details,
             "record_path": persisted.get("path"),
             "record_synced": persisted.get("synced", False),
         }
@@ -1144,7 +1156,7 @@ def ask(req: AskRequest) -> AskResponse:
         except Exception:
             realtime_result = None
         if realtime_result is not None:
-            answer_text, card = realtime_result
+            answer_text, card, details = _split_realtime_result(realtime_result)
             try:
                 _persist_realtime_flight_record(question=req.question, answer_text=answer_text, card=card)
             except Exception:
@@ -1157,6 +1169,7 @@ def ask(req: AskRequest) -> AskResponse:
                 citations=[],
                 confidence_note="realtime-flight",
                 realtime_flight=card,
+                realtime_flight_details=details,
             )
 
         result = service.ask(req.question, req.top_k)

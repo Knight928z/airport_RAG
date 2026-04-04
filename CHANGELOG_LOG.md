@@ -2,6 +2,17 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-04 11:12:42 +0800
+
+- 提交：`feat(realtime): map detailed flight fields and add detail toggle UI`
+- 变更文件：
+  - `src/airport_rag/api.py`
+  - `src/airport_rag/realtime_flight.py`
+  - `src/airport_rag/schemas.py`
+  - `src/airport_rag/static/index.html`
+  - `tests/test_realtime_flight_api.py`
+- 备注：实时航班详情支持字段中文映射与优先排序；默认简洁卡片展示，按钮切换详细字段；后端补充realtime_flight_details并兼容旧返回格式。
+
 ## 2026-04-04 11:01:58 +0800
 
 - 提交：`feat(eval): add 100 more self-test cases and optimize rules`

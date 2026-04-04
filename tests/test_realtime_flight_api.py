@@ -24,6 +24,11 @@ def test_ask_realtime_question_uses_mcp_result(tmp_path: Path, monkeypatch) -> N
                 terminal="出发 T1 / 到达 T2",
                 gate="出发 A12 / 到达 B03",
             ),
+            {
+                "FlightNo": "MU2456",
+                "FlightState": "延误",
+                "DelayTime": 25,
+            },
         )
 
     monkeypatch.setattr(api_module, "query_realtime_flight", _fake_realtime)
@@ -61,6 +66,7 @@ def test_ask_realtime_question_uses_mcp_result(tmp_path: Path, monkeypatch) -> N
     assert body["confidence_note"] == "realtime-flight"
     assert body["realtime_flight"]["flight_no"] == "MU2456"
     assert body["realtime_flight"]["delay_minutes"] == 25
+    assert body["realtime_flight_details"]["FlightNo"] == "MU2456"
     assert ingest_calls["count"] == 1
 
     records = list((doc_root / "airport" / "实时航班").glob("*.md"))
@@ -108,6 +114,7 @@ def test_flight_realtime_endpoint_returns_standard_card(monkeypatch) -> None:
                 terminal="T2",
                 gate="C18",
             ),
+            {"FlightNo": "CA1307", "FlightState": "正常", "BoardGate": "C18"},
         ),
     )
 
@@ -119,6 +126,7 @@ def test_flight_realtime_endpoint_returns_standard_card(monkeypatch) -> None:
     assert body["confidence_note"] == "realtime-flight"
     assert body["realtime_flight"]["flight_no"] == "CA1307"
     assert body["realtime_flight"]["gate"] == "C18"
+    assert body["realtime_flight_details"]["BoardGate"] == "C18"
 
 
 def test_normalize_flight_no_works_without_word_boundary_spaces() -> None:

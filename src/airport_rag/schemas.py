@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -25,6 +25,7 @@ class AskResponse(BaseModel):
     citations: List[Citation]
     confidence_note: str
     realtime_flight: Optional["RealtimeFlightCard"] = None
+    realtime_flight_details: Optional[Dict[str, Any]] = None
 
 
 class RealtimeFlightCard(BaseModel):

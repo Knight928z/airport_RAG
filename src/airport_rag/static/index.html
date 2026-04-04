@@ -163,6 +163,26 @@
         font-weight: 600;
         font-size: 14px;
       }
+      .flight-actions {
+        margin-top: 10px;
+        display: flex;
+        gap: 8px;
+      }
+      .flight-details {
+        margin-top: 10px;
+        border: 1px dashed var(--line);
+        border-radius: 8px;
+        padding: 10px;
+        background: #f8faff;
+      }
+      .flight-detail-list {
+        margin: 0;
+        padding-left: 18px;
+      }
+      .flight-detail-list li {
+        margin-bottom: 6px;
+        line-height: 1.5;
+      }
     </style>
   </head>
   <body>
@@ -234,6 +254,12 @@
           <div class="flight-cell"><div class="flight-label">延误分钟</div><div id="flight-delay" class="flight-value">-</div></div>
           <div class="flight-cell"><div class="flight-label">航站楼 / 登机口</div><div id="flight-terminal-gate" class="flight-value">-</div></div>
         </div>
+        <div class="flight-actions">
+          <button id="flight-toggle-detail" type="button" class="secondary hidden">显示详细航班信息</button>
+        </div>
+        <div id="flight-details" class="flight-details hidden">
+          <ol id="flight-detail-list" class="flight-detail-list"></ol>
+        </div>
       </section>
 
       <section class="card">
@@ -267,8 +293,88 @@
   const flightActualArrEl = document.getElementById('flight-actual-arr');
   const flightDelayEl = document.getElementById('flight-delay');
   const flightTerminalGateEl = document.getElementById('flight-terminal-gate');
+  const flightToggleDetailEl = document.getElementById('flight-toggle-detail');
+  const flightDetailsEl = document.getElementById('flight-details');
+  const flightDetailListEl = document.getElementById('flight-detail-list');
 
   let lastResponse = null;
+  let currentRealtimeDetails = null;
+
+  const FLIGHT_DETAIL_LABEL_MAP = {
+    flight_no: '航班号',
+    flightNo: '航班号',
+    FlightNo: '航班号',
+    status: '航班状态',
+    state: '航班状态',
+    flight_status: '航班状态',
+    status_text: '航班状态',
+    FlightState: '航班状态',
+    AssistFlightState: '航班状态',
+    delay: '延误分钟',
+    delay_minutes: '延误分钟',
+    delay_time: '延误分钟',
+    delayTime: '延误分钟',
+    DelayTime: '延误分钟',
+    planned_departure: '计划起飞',
+    scheduled_departure: '计划起飞',
+    std: '计划起飞',
+    dep_plan_time: '计划起飞',
+    plan_departure_time: '计划起飞',
+    FlightDeptimePlanDate: '计划起飞',
+    actual_departure: '实际起飞',
+    atd: '实际起飞',
+    dep_actual_time: '实际起飞',
+    real_departure_time: '实际起飞',
+    FlightDeptimeDate: '实际起飞',
+    planned_arrival: '计划到达',
+    scheduled_arrival: '计划到达',
+    sta: '计划到达',
+    arr_plan_time: '计划到达',
+    plan_arrival_time: '计划到达',
+    FlightArrtimePlanDate: '计划到达',
+    actual_arrival: '实际到达',
+    ata: '实际到达',
+    arr_actual_time: '实际到达',
+    real_arrival_time: '实际到达',
+    FlightArrtimeDate: '实际到达',
+    terminal: '航站楼',
+    departure_terminal: '出发航站楼',
+    dep_terminal: '出发航站楼',
+    depTerminal: '出发航站楼',
+    FlightHTerminal: '出发航站楼',
+    arrival_terminal: '到达航站楼',
+    arr_terminal: '到达航站楼',
+    arrTerminal: '到达航站楼',
+    FlightTerminal: '到达航站楼',
+    gate: '登机口',
+    departure_gate: '出发登机口',
+    dep_gate: '出发登机口',
+    boarding_gate: '出发登机口',
+    BoardGate: '出发登机口',
+    arrival_gate: '到达口',
+    arr_gate: '到达口',
+    ReachExit: '到达口',
+    depcity: '出发城市',
+    arrcity: '到达城市',
+    depCity: '出发城市',
+    arrCity: '到达城市',
+    AirlineName: '航司',
+    FlightCompany: '航司',
+  };
+
+  const FLIGHT_DETAIL_PRIORITY = [
+    'FlightNo', 'flight_no', 'flightNo',
+    'FlightState', 'AssistFlightState', 'status', 'state',
+    'DelayTime', 'delay_minutes', 'delayTime',
+    'FlightDeptimePlanDate', 'planned_departure', 'scheduled_departure', 'std',
+    'FlightDeptimeDate', 'actual_departure', 'atd',
+    'FlightArrtimePlanDate', 'planned_arrival', 'scheduled_arrival', 'sta',
+    'FlightArrtimeDate', 'actual_arrival', 'ata',
+    'FlightHTerminal', 'departure_terminal',
+    'FlightTerminal', 'arrival_terminal',
+    'BoardGate', 'departure_gate', 'gate',
+    'ReachExit', 'arrival_gate',
+  ];
 
       function setError(message) {
         answerEl.textContent = message;
@@ -308,9 +414,52 @@
         return hasKeyword || hasFlightNo;
       }
 
-      function renderRealtimeFlightCard(card) {
+      function buildRealtimeSummary(card) {
+        const flightNo = card.flight_no || '未知航班';
+        const status = card.status || '状态未知';
+        const delay = card.delay_minutes === null || card.delay_minutes === undefined ? '未知' : `${card.delay_minutes} 分钟`;
+        const dep = card.actual_departure || card.planned_departure || '-';
+        const arr = card.actual_arrival || card.planned_arrival || '-';
+        return `已获取实时航班卡片：${flightNo}，当前${status}，延误 ${delay}。\n起飞时间：${dep}；到达时间：${arr}。`;
+      }
+
+      function renderRealtimeFlightDetails(details) {
+        currentRealtimeDetails = details && typeof details === 'object' ? details : null;
+        flightDetailListEl.innerHTML = '';
+
+        if (!currentRealtimeDetails || Object.keys(currentRealtimeDetails).length === 0) {
+          flightToggleDetailEl.classList.add('hidden');
+          flightDetailsEl.classList.add('hidden');
+          flightToggleDetailEl.textContent = '显示详细航班信息';
+          return;
+        }
+
+        const entries = Object.entries(currentRealtimeDetails);
+        const priorityMap = new Map(FLIGHT_DETAIL_PRIORITY.map((k, i) => [k, i]));
+        entries.sort(([a], [b]) => {
+          const pa = priorityMap.has(a) ? priorityMap.get(a) : 9999;
+          const pb = priorityMap.has(b) ? priorityMap.get(b) : 9999;
+          if (pa !== pb) return pa - pb;
+          return a.localeCompare(b);
+        });
+
+        entries.forEach(([key, value]) => {
+          const li = document.createElement('li');
+          const safeVal = value === null || value === undefined ? '-' : (typeof value === 'object' ? JSON.stringify(value) : String(value));
+          const label = FLIGHT_DETAIL_LABEL_MAP[key] || key;
+          li.innerHTML = `<strong>${label}</strong>：${safeVal} <span class="meta">(<code>${key}</code>)</span>`;
+          flightDetailListEl.appendChild(li);
+        });
+
+        flightToggleDetailEl.classList.remove('hidden');
+        flightDetailsEl.classList.add('hidden');
+        flightToggleDetailEl.textContent = '显示详细航班信息';
+      }
+
+      function renderRealtimeFlightCard(card, details = null) {
         if (!card) {
           flightCardEl.classList.add('hidden');
+          renderRealtimeFlightDetails(null);
           return;
         }
         flightNoEl.textContent = card.flight_no || '-';
@@ -324,6 +473,7 @@
         const gate = card.gate || '-';
         flightTerminalGateEl.textContent = `${terminal} / ${gate}`;
         flightCardEl.classList.remove('hidden');
+        renderRealtimeFlightDetails(details);
       }
 
       async function submitFeedback(rating, correctedAnswer = '') {
@@ -409,10 +559,14 @@
 
           lastResponse = data;
 
-          answerEl.textContent = data.answer;
+          if (data.realtime_flight) {
+            answerEl.textContent = buildRealtimeSummary(data.realtime_flight);
+          } else {
+            answerEl.textContent = data.answer;
+          }
           renderCitations(data.citations);
           setConfidence(data.confidence_note || 'unknown');
-          renderRealtimeFlightCard(data.realtime_flight || null);
+          renderRealtimeFlightCard(data.realtime_flight || null, data.realtime_flight_details || null);
           feedbackStatusEl.textContent = '';
         } catch (err) {
           setError(`问答失败：${err.message}`);
@@ -423,6 +577,18 @@
         } finally {
           askBtn.disabled = false;
           askBtn.textContent = '开始问答';
+        }
+      });
+
+      flightToggleDetailEl.addEventListener('click', () => {
+        if (!currentRealtimeDetails) return;
+        const hidden = flightDetailsEl.classList.contains('hidden');
+        if (hidden) {
+          flightDetailsEl.classList.remove('hidden');
+          flightToggleDetailEl.textContent = '切换简洁展示';
+        } else {
+          flightDetailsEl.classList.add('hidden');
+          flightToggleDetailEl.textContent = '显示详细航班信息';
         }
       });
 

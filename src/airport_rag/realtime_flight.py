@@ -11,7 +11,7 @@ from urllib import error, parse, request
 
 from .schemas import RealtimeFlightCard
 
-FLIGHT_NO_RE = re.compile(r"(?i)\b([A-Z]{2}\s?\d{3,4})\b")
+FLIGHT_NO_RE = re.compile(r"(?i)(?<![A-Za-z0-9])([A-Z]{2}\s?\d{3,4})(?![A-Za-z0-9])")
 REALTIME_KEYWORDS = (
     "实时",
     "动态",
@@ -245,6 +245,16 @@ def _card_is_sparse(card: RealtimeFlightCard) -> bool:
     return all(v in (None, "") for v in fields) and card.delay_minutes is None
 
 
+def _looks_like_tool_error(text: str) -> bool:
+    t = (text or "").lower()
+    return (
+        "error executing tool" in t
+        or "validation error" in t
+        or "field required" in t
+        or "not acceptable" in t
+    )
+
+
 def _build_flight_card(result: dict[str, Any], fallback_flight_no: Optional[str]) -> RealtimeFlightCard:
     flight_no = _to_text(
         _find_value(result, ("flight_no", "flightNo", "flight", "flight_num", "flightNumber", "FlightNo"))
@@ -326,6 +336,13 @@ def query_realtime_flight(question: str, flight_no: Optional[str] = None) -> tup
             {"fnum": guessed_flight_no, "date": date_str},
             {"fnum": guessed_flight_no, "date": date_str, "dep": "", "arr": ""},
         ]
+    elif tool_name == "searchFlightsByDepArr":
+        date_str = client.get_today_date()
+        arg_candidates = [
+            {"date": date_str, "depcity": "广州", "arrcity": "北京"},
+            {"date": date_str, "question": question},
+            {"date": date_str, "query": question},
+        ]
     else:
         arg_candidates = [
             {"question": question, "flight_no": guessed_flight_no},
@@ -355,6 +372,10 @@ def query_realtime_flight(question: str, flight_no: Optional[str] = None) -> tup
         embedded = _parse_embedded_dict_from_text(text)
         if embedded:
             card = _build_flight_card(embedded, guessed_flight_no)
+
+    if _looks_like_tool_error(text):
+        raise RuntimeError(text)
+
     if not text:
         lines = [
             f"航班号：{card.flight_no}",

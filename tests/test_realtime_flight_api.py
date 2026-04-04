@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from airport_rag import api as api_module
 from airport_rag.schemas import AskResponse, RealtimeFlightCard
+from airport_rag.realtime_flight import normalize_flight_no
 
 
 def test_ask_realtime_question_uses_mcp_result(tmp_path: Path, monkeypatch) -> None:
@@ -118,3 +119,28 @@ def test_flight_realtime_endpoint_returns_standard_card(monkeypatch) -> None:
     assert body["confidence_note"] == "realtime-flight"
     assert body["realtime_flight"]["flight_no"] == "CA1307"
     assert body["realtime_flight"]["gate"] == "C18"
+
+
+def test_normalize_flight_no_works_without_word_boundary_spaces() -> None:
+    assert normalize_flight_no("CZ325航班状态") == "CZ325"
+
+
+def test_persist_realtime_record_uses_question_flight_no_when_card_unknown(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(api_module, "DOC_ROOT", tmp_path)
+
+    class _IngestResult:
+        indexed_chunks = 1
+        processed_files = 1
+
+    monkeypatch.setattr(api_module.service, "ingest", lambda _path: _IngestResult())
+    card = RealtimeFlightCard(flight_no="UNKNOWN")
+
+    out = api_module._persist_realtime_flight_record(
+        question="CZ325航班状态",
+        answer_text="实时回答",
+        card=card,
+    )
+
+    assert out["path"].endswith("CZ325.md")
+    saved = (tmp_path / out["path"]).read_text(encoding="utf-8")
+    assert "航班号：CZ325" in saved

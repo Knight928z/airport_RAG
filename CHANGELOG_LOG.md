@@ -2,6 +2,15 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-04 10:38:45 +0800
+
+- 提交：`fix(realtime): parse chinese flight-no and avoid unknown records`
+- 变更文件：
+  - `src/airport_rag/api.py`
+  - `src/airport_rag/realtime_flight.py`
+  - `tests/test_realtime_flight_api.py`
+- 备注：修复CZ325航班状态识别失败：支持中文黏连航班号提取；实时工具报错时不写入错误卡片；UNKNOWN落盘回退提取问题中的航班号；补充回归测试
+
 ## 2026-04-04 10:33:02 +0800
 
 - 提交：`fix(realtime): support MCP redirect and accept headers`

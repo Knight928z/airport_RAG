@@ -27,7 +27,7 @@ from .schemas import (
 )
 from .service import AirportRAGService
 from .ingest import extract_text_from_image
-from .realtime_flight import query_realtime_flight
+from .realtime_flight import query_realtime_flight, normalize_flight_no
 
 
 app = FastAPI(title="Airport KB RAG Assistant", version="1.0.0")
@@ -786,7 +786,10 @@ def _guess_media_type(path: Path) -> str:
 
 
 def _persist_realtime_flight_record(question: str, answer_text: str, card) -> dict:
-    flight_no = re.sub(r"[^A-Za-z0-9_-]", "", (getattr(card, "flight_no", "") or "UNKNOWN").upper()) or "UNKNOWN"
+    raw_flight = (getattr(card, "flight_no", "") or "").strip()
+    if not raw_flight or raw_flight.upper() == "UNKNOWN":
+        raw_flight = normalize_flight_no(question or "") or "UNKNOWN"
+    flight_no = re.sub(r"[^A-Za-z0-9_-]", "", raw_flight.upper()) or "UNKNOWN"
     day_key = datetime.now().strftime("%Y-%m-%d")
     rel = f"airport/实时航班/{day_key}-{flight_no}.md"
     target = _safe_doc_path(rel)
@@ -804,7 +807,7 @@ def _persist_realtime_flight_record(question: str, answer_text: str, card) -> di
         "\n\n---",
         f"## record {ts}",
         f"- 问题：{question}",
-        f"- 航班号：{getattr(card, 'flight_no', '') or 'UNKNOWN'}",
+    f"- 航班号：{raw_flight or 'UNKNOWN'}",
         f"- 状态：{getattr(card, 'status', None) or '未知'}",
         f"- 计划起飞：{getattr(card, 'planned_departure', None) or '未知'}",
         f"- 实际起飞：{getattr(card, 'actual_departure', None) or '未知'}",
@@ -1169,7 +1172,11 @@ def flight_realtime(req: FlightRealtimeRequest) -> dict:
 @app.post("/ask", response_model=AskResponse)
 def ask(req: AskRequest) -> AskResponse:
     try:
-        realtime_result = query_realtime_flight(question=req.question)
+        realtime_result = None
+        try:
+            realtime_result = query_realtime_flight(question=req.question)
+        except Exception:
+            realtime_result = None
         if realtime_result is not None:
             answer_text, card = realtime_result
             try:

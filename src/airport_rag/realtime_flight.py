@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import ast
 from collections.abc import Iterable
+from datetime import datetime
 from typing import Any, Optional
-from urllib import parse, request
+from urllib import error, parse, request
 
 from .schemas import RealtimeFlightCard
 
@@ -37,11 +39,33 @@ class VariFlightMCPClient:
         self._request_id = 1
 
     def _url(self) -> str:
-        url = self.base_url
+        url = self.base_url.strip()
+        if "?" in url:
+            left, right = url.split("?", 1)
+            url = left.rstrip("/") + "?" + right
+        else:
+            url = url.rstrip("/")
         if self.api_key and "api_key=" not in url:
             sep = "&" if "?" in url else "?"
             url = f"{url}{sep}api_key={parse.quote(self.api_key)}"
         return url
+
+    def _post_json(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
+        req = request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/event-stream",
+            },
+            method="POST",
+        )
+        with request.urlopen(req, timeout=self.timeout_seconds) as resp:
+            text = resp.read().decode("utf-8", errors="ignore")
+        body = json.loads(text or "{}")
+        if "error" in body:
+            raise RuntimeError(str(body.get("error")))
+        return body.get("result", {}) if isinstance(body, dict) else {}
 
     def _rpc(self, method: str, params: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         payload = {
@@ -51,18 +75,19 @@ class VariFlightMCPClient:
             "params": params or {},
         }
         self._request_id += 1
-        req = request.Request(
-            self._url(),
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with request.urlopen(req, timeout=self.timeout_seconds) as resp:
-            text = resp.read().decode("utf-8", errors="ignore")
-        body = json.loads(text or "{}")
-        if "error" in body:
-            raise RuntimeError(str(body.get("error")))
-        return body.get("result", {}) if isinstance(body, dict) else {}
+        url = self._url()
+        try:
+            return self._post_json(url, payload)
+        except error.HTTPError as exc:
+            if exc.code not in {307, 308}:
+                raise
+            location = exc.headers.get("Location")
+            if not location:
+                raise
+            if self.api_key and "api_key=" not in location:
+                sep = "&" if "?" in location else "?"
+                location = f"{location}{sep}api_key={parse.quote(self.api_key)}"
+            return self._post_json(location, payload)
 
     def list_tools(self) -> list[dict[str, Any]]:
         result = self._rpc("tools/list", {})
@@ -80,6 +105,26 @@ class VariFlightMCPClient:
         if tools:
             return str(tools[0].get("name", "")) or None
         return None
+
+    def has_tool(self, name: str) -> bool:
+        return any(str(t.get("name", "")) == name for t in self.list_tools())
+
+    def get_today_date(self) -> str:
+        if self.has_tool("getTodayDate"):
+            try:
+                result = self.call_tool("getTodayDate", {"random_string": "today"})
+                txt = _extract_display_text(result)
+                m = re.search(r"\d{4}-\d{2}-\d{2}", txt)
+                if m:
+                    return m.group(0)
+                date_val = _find_value(result, ("date", "today", "current_date"))
+                if date_val:
+                    m2 = re.search(r"\d{4}-\d{2}-\d{2}", str(date_val))
+                    if m2:
+                        return m2.group(0)
+            except Exception:
+                pass
+        return datetime.now().strftime("%Y-%m-%d")
 
     def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._rpc("tools/call", {"name": name, "arguments": arguments})
@@ -137,6 +182,18 @@ def _to_text(value: Any) -> Optional[str]:
     return str(value).strip()
 
 
+def _parse_dt(value: Any) -> Optional[datetime]:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S%z"):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return None
+
+
 def _extract_display_text(result: dict[str, Any]) -> str:
     content = result.get("content")
     if isinstance(content, list):
@@ -158,39 +215,79 @@ def _extract_display_text(result: dict[str, Any]) -> str:
     return ""
 
 
+def _parse_embedded_dict_from_text(text: str) -> Optional[dict[str, Any]]:
+    if not text:
+        return None
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    candidate = text[start : end + 1]
+    try:
+        parsed = ast.literal_eval(candidate)
+    except Exception:
+        return None
+    if isinstance(parsed, dict):
+        return parsed
+    return None
+
+
+def _card_is_sparse(card: RealtimeFlightCard) -> bool:
+    fields = [
+        card.status,
+        card.planned_departure,
+        card.actual_departure,
+        card.planned_arrival,
+        card.actual_arrival,
+        card.terminal,
+        card.gate,
+    ]
+    return all(v in (None, "") for v in fields) and card.delay_minutes is None
+
+
 def _build_flight_card(result: dict[str, Any], fallback_flight_no: Optional[str]) -> RealtimeFlightCard:
     flight_no = _to_text(
-        _find_value(result, ("flight_no", "flightNo", "flight", "flight_num", "flightNumber"))
+        _find_value(result, ("flight_no", "flightNo", "flight", "flight_num", "flightNumber", "FlightNo"))
     ) or fallback_flight_no or "UNKNOWN"
 
     planned_departure = _to_text(
-        _find_value(result, ("scheduled_departure", "std", "planned_departure", "plan_departure_time", "dep_plan_time"))
+        _find_value(result, ("scheduled_departure", "std", "planned_departure", "plan_departure_time", "dep_plan_time", "FlightDeptimePlanDate"))
     )
     actual_departure = _to_text(
-        _find_value(result, ("actual_departure", "atd", "real_departure_time", "dep_actual_time"))
+        _find_value(result, ("actual_departure", "atd", "real_departure_time", "dep_actual_time", "FlightDeptimeDate"))
     )
     planned_arrival = _to_text(
-        _find_value(result, ("scheduled_arrival", "sta", "planned_arrival", "plan_arrival_time", "arr_plan_time"))
+        _find_value(result, ("scheduled_arrival", "sta", "planned_arrival", "plan_arrival_time", "arr_plan_time", "FlightArrtimePlanDate"))
     )
     actual_arrival = _to_text(
-        _find_value(result, ("actual_arrival", "ata", "real_arrival_time", "arr_actual_time"))
+        _find_value(result, ("actual_arrival", "ata", "real_arrival_time", "arr_actual_time", "FlightArrtimeDate"))
     )
 
     delay_minutes = _to_int(
-        _find_value(result, ("delay_minutes", "delay", "delay_min", "delayTime", "delay_time"))
+        _find_value(result, ("delay_minutes", "delay", "delay_min", "delayTime", "delay_time", "DelayTime"))
     )
-    status = _to_text(_find_value(result, ("status", "flight_status", "state", "status_text")))
+    if delay_minutes is None:
+        dep_actual_dt = _parse_dt(actual_departure)
+        dep_plan_dt = _parse_dt(planned_departure)
+        arr_actual_dt = _parse_dt(actual_arrival)
+        arr_plan_dt = _parse_dt(planned_arrival)
+        if dep_actual_dt and dep_plan_dt:
+            delay_minutes = int((dep_actual_dt - dep_plan_dt).total_seconds() // 60)
+        elif arr_actual_dt and arr_plan_dt:
+            delay_minutes = int((arr_actual_dt - arr_plan_dt).total_seconds() // 60)
 
-    dep_terminal = _to_text(_find_value(result, ("departure_terminal", "dep_terminal", "terminal_dep", "depTerminal")))
-    arr_terminal = _to_text(_find_value(result, ("arrival_terminal", "arr_terminal", "terminal_arr", "arrTerminal")))
+    status = _to_text(_find_value(result, ("status", "flight_status", "state", "status_text", "FlightState", "AssistFlightState")))
+
+    dep_terminal = _to_text(_find_value(result, ("departure_terminal", "dep_terminal", "terminal_dep", "depTerminal", "FlightHTerminal")))
+    arr_terminal = _to_text(_find_value(result, ("arrival_terminal", "arr_terminal", "terminal_arr", "arrTerminal", "FlightTerminal")))
     terminal = None
     if dep_terminal and arr_terminal:
         terminal = f"出发 {dep_terminal} / 到达 {arr_terminal}"
     else:
         terminal = dep_terminal or arr_terminal
 
-    dep_gate = _to_text(_find_value(result, ("departure_gate", "dep_gate", "gate", "boarding_gate", "gate_dep")))
-    arr_gate = _to_text(_find_value(result, ("arrival_gate", "arr_gate", "gate_arr")))
+    dep_gate = _to_text(_find_value(result, ("departure_gate", "dep_gate", "gate", "boarding_gate", "gate_dep", "BoardGate")))
+    arr_gate = _to_text(_find_value(result, ("arrival_gate", "arr_gate", "gate_arr", "ReachExit")))
     gate = None
     if dep_gate and arr_gate:
         gate = f"出发 {dep_gate} / 到达 {arr_gate}"
@@ -216,17 +313,27 @@ def query_realtime_flight(question: str, flight_no: Optional[str] = None) -> tup
 
     guessed_flight_no = flight_no or normalize_flight_no(question)
     client = VariFlightMCPClient()
-    tool_name = client.select_flight_tool()
+    if guessed_flight_no and client.has_tool("searchFlightsByNumber"):
+        tool_name = "searchFlightsByNumber"
+    else:
+        tool_name = client.select_flight_tool()
     if not tool_name:
         raise RuntimeError("MCP 未返回可用工具")
 
-    arg_candidates = [
-        {"question": question, "flight_no": guessed_flight_no},
-        {"query": question, "flight_no": guessed_flight_no},
-        {"flight_no": guessed_flight_no},
-        {"question": question},
-        {"query": question},
-    ]
+    if tool_name == "searchFlightsByNumber":
+        date_str = client.get_today_date()
+        arg_candidates = [
+            {"fnum": guessed_flight_no, "date": date_str},
+            {"fnum": guessed_flight_no, "date": date_str, "dep": "", "arr": ""},
+        ]
+    else:
+        arg_candidates = [
+            {"question": question, "flight_no": guessed_flight_no},
+            {"query": question, "flight_no": guessed_flight_no},
+            {"flight_no": guessed_flight_no},
+            {"question": question},
+            {"query": question},
+        ]
 
     last_error: Optional[Exception] = None
     result: Optional[dict[str, Any]] = None
@@ -242,8 +349,12 @@ def query_realtime_flight(question: str, flight_no: Optional[str] = None) -> tup
     if result is None:
         raise RuntimeError(f"实时航班查询失败: {last_error}")
 
-    card = _build_flight_card(result, guessed_flight_no)
     text = _extract_display_text(result)
+    card = _build_flight_card(result, guessed_flight_no)
+    if _card_is_sparse(card):
+        embedded = _parse_embedded_dict_from_text(text)
+        if embedded:
+            card = _build_flight_card(embedded, guessed_flight_no)
     if not text:
         lines = [
             f"航班号：{card.flight_no}",

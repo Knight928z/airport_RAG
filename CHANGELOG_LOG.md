@@ -2,6 +2,13 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-04 10:33:02 +0800
+
+- 提交：`fix(realtime): support MCP redirect and accept headers`
+- 变更文件：
+  - `src/airport_rag/realtime_flight.py`
+- 备注：使用本地私有API Key联调，修复307重定向与406 Accept头问题；航班号查询优先searchFlightsByNumber并自动补当天日期；增强文本内嵌结构化结果解析
+
 ## 2026-04-04 10:24:35 +0800
 
 - 提交：`feat(realtime): persist flight status answers into kb`

@@ -2,6 +2,15 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-04 10:24:35 +0800
+
+- 提交：`feat(realtime): persist flight status answers into kb`
+- 变更文件：
+  - `README.md`
+  - `src/airport_rag/api.py`
+  - `tests/test_realtime_flight_api.py`
+- 备注：航班状态问答命中实时模块后自动新建文档到 data/documents/airport/实时航班 并立即入库；补充对应测试与文档
+
 ## 2026-04-04 10:17:33 +0800
 
 - 提交：`feat(realtime): integrate MCP flight card and local private secrets`

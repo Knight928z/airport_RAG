@@ -102,6 +102,7 @@ VARIFLIGHT_MCP_TIMEOUT=10
 - 当问题包含航班号（如 `MU2456`）或实时航班关键词（如“延误/起飞/到达/动态”）时，`POST /ask` 会优先调用 VariFlight MCP。
 - `/ask` 的响应会增加 `realtime_flight` 字段（可能为 `null`），用于前端实时航班卡片展示。
 - 标准化字段：`flight_no`、`planned_departure`、`actual_departure`、`planned_arrival`、`actual_arrival`、`delay_minutes`、`terminal`、`gate`、`status`。
+- 命中实时航班问答后，会自动新建/追加记录到 `data/documents/airport/实时航班/`，并立即触发入库，供后续检索追溯。
 
 建议使用环境变量配置 MCP（不要在代码中硬编码 API Key）：
 

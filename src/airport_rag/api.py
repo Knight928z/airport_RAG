@@ -785,6 +785,43 @@ def _guess_media_type(path: Path) -> str:
     return media_type or "application/octet-stream"
 
 
+def _persist_realtime_flight_record(question: str, answer_text: str, card) -> dict:
+    flight_no = re.sub(r"[^A-Za-z0-9_-]", "", (getattr(card, "flight_no", "") or "UNKNOWN").upper()) or "UNKNOWN"
+    day_key = datetime.now().strftime("%Y-%m-%d")
+    rel = f"airport/实时航班/{day_key}-{flight_no}.md"
+    target = _safe_doc_path(rel)
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    if not target.exists():
+        target.write_text(
+            f"# 实时航班记录：{flight_no}\n\n"
+            "> 由实时航班模块自动生成并入库，用于后续检索与问答参考。\n",
+            encoding="utf-8",
+        )
+
+    ts = datetime.now().isoformat(timespec="seconds")
+    lines = [
+        "\n\n---",
+        f"## record {ts}",
+        f"- 问题：{question}",
+        f"- 航班号：{getattr(card, 'flight_no', '') or 'UNKNOWN'}",
+        f"- 状态：{getattr(card, 'status', None) or '未知'}",
+        f"- 计划起飞：{getattr(card, 'planned_departure', None) or '未知'}",
+        f"- 实际起飞：{getattr(card, 'actual_departure', None) or '未知'}",
+        f"- 计划到达：{getattr(card, 'planned_arrival', None) or '未知'}",
+        f"- 实际到达：{getattr(card, 'actual_arrival', None) or '未知'}",
+        f"- 延误分钟：{getattr(card, 'delay_minutes', None) if getattr(card, 'delay_minutes', None) is not None else '未知'}",
+        f"- 航站楼：{getattr(card, 'terminal', None) or '未知'}",
+        f"- 登机口：{getattr(card, 'gate', None) or '未知'}",
+        "- 实时回答：",
+        answer_text,
+    ]
+    _append_text(target, "\n".join(lines) + "\n")
+
+    sync = _sync_if_needed(True)
+    return {"path": rel, **sync}
+
+
 @app.get("/admin/docs")
 def admin_list_docs() -> dict:
     DOC_ROOT.mkdir(parents=True, exist_ok=True)
@@ -1114,11 +1151,14 @@ def flight_realtime(req: FlightRealtimeRequest) -> dict:
         if result is None:
             raise HTTPException(status_code=404, detail="未识别为实时航班查询问题")
         answer_text, card = result
+        persisted = _persist_realtime_flight_record(question=question, answer_text=answer_text, card=card)
         return {
             "question": question,
             "answer": answer_text,
             "confidence_note": "realtime-flight",
             "realtime_flight": card.model_dump(),
+            "record_path": persisted.get("path"),
+            "record_synced": persisted.get("synced", False),
         }
     except HTTPException:
         raise
@@ -1132,6 +1172,11 @@ def ask(req: AskRequest) -> AskResponse:
         realtime_result = query_realtime_flight(question=req.question)
         if realtime_result is not None:
             answer_text, card = realtime_result
+            try:
+                _persist_realtime_flight_record(question=req.question, answer_text=answer_text, card=card)
+            except Exception:
+                # 不阻断实时应答主流程，入库失败时仅降级为不落盘。
+                pass
             return AskResponse(
                 answer_id=str(uuid4()),
                 question=req.question,

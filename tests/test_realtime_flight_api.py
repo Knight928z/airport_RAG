@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from airport_rag import api as api_module
 from airport_rag.schemas import AskResponse, RealtimeFlightCard
 
 
-def test_ask_realtime_question_uses_mcp_result(monkeypatch) -> None:
+def test_ask_realtime_question_uses_mcp_result(tmp_path: Path, monkeypatch) -> None:
     def _fake_realtime(question: str, flight_no=None):
         return (
             "MU2456 实时状态：预计延误 25 分钟。",
@@ -24,6 +26,21 @@ def test_ask_realtime_question_uses_mcp_result(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(api_module, "query_realtime_flight", _fake_realtime)
+    doc_root = tmp_path / "documents"
+    doc_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(api_module, "DOC_ROOT", doc_root)
+
+    ingest_calls = {"count": 0}
+
+    class _IngestResult:
+        indexed_chunks = 2
+        processed_files = 1
+
+    def _fake_ingest(_path: str):
+        ingest_calls["count"] += 1
+        return _IngestResult()
+
+    monkeypatch.setattr(api_module.service, "ingest", _fake_ingest)
     monkeypatch.setattr(
         api_module.service,
         "ask",
@@ -43,6 +60,11 @@ def test_ask_realtime_question_uses_mcp_result(monkeypatch) -> None:
     assert body["confidence_note"] == "realtime-flight"
     assert body["realtime_flight"]["flight_no"] == "MU2456"
     assert body["realtime_flight"]["delay_minutes"] == 25
+    assert ingest_calls["count"] == 1
+
+    records = list((doc_root / "airport" / "实时航班").glob("*.md"))
+    assert records
+    assert "MU2456" in records[0].read_text(encoding="utf-8")
 
 
 def test_ask_fallback_to_rag_when_realtime_not_matched(monkeypatch) -> None:

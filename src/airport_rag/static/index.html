@@ -316,6 +316,7 @@
   let currentRealtimeDetails = null;
   let flightDetailLabelMap = {};
   let flightDetailLabelMapLoaded = false;
+  let currentRealtimeFieldLabels = {};
   let pendingRealtimeQuestion = '';
 
   const FLIGHT_DETAIL_PRIORITY = [
@@ -418,7 +419,7 @@
         const hasFlightNo = /\b[a-z]{2}\s?\d{3,4}\b/i.test(question || '');
         const hasFlightWord = q.includes('航班') || q.includes('flight');
         const hasRealtimeIntent = ['实时', '动态', '状态', '延误', '晚点', '取消', '起飞', '降落', '到达', 'realtime', 'status', 'delay'].some(k => q.includes(k));
-        return !hasFlightNo && hasFlightWord && hasRealtimeIntent;
+        return hasFlightNo || (hasFlightWord && hasRealtimeIntent);
       }
 
       function setRealtimeConfirmState(show, question = '') {
@@ -429,6 +430,20 @@
           pendingRealtimeQuestion = '';
           realtimeConfirmBoxEl.classList.add('hidden');
         }
+      }
+
+      function getRuntimeLabelFromServer(key) {
+        const raw = String(key || '');
+        const clean = normalizeFieldKey(raw);
+        const lower = clean.toLowerCase();
+        const canonical = canonicalFieldKey(clean);
+        const direct = currentRealtimeFieldLabels[raw] || currentRealtimeFieldLabels[clean] || currentRealtimeFieldLabels[lower];
+        if (direct) return String(direct).trim();
+        const found = Object.entries(currentRealtimeFieldLabels).find(([k]) => {
+          const nk = normalizeFieldKey(k);
+          return nk.toLowerCase() === lower || canonicalFieldKey(nk) === canonical;
+        });
+        return found && found[1] ? String(found[1]).trim() : '';
       }
 
       function buildRealtimeSummary(card) {
@@ -467,7 +482,7 @@
         entries.forEach(([key, value]) => {
           const li = document.createElement('li');
           const safeVal = value === null || value === undefined ? '-' : (typeof value === 'object' ? JSON.stringify(value) : String(value));
-          const label = getFlightDetailLabelByKey(key);
+          const label = getRuntimeLabelFromServer(key) || getFlightDetailLabelByKey(key);
           li.innerHTML = `<strong>${label}</strong>：${safeVal} <span class="meta">(<code>${key}</code>)</span>`;
           flightDetailListEl.appendChild(li);
         });
@@ -573,7 +588,7 @@
           const res = await fetch('/ask', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ question, top_k: Number(topKEl.value) }),
+            body: JSON.stringify({ question, top_k: Number(topKEl.value), enable_realtime: false }),
           });
           const data = await res.json();
           if (!res.ok) throw new Error(data.detail || '请求失败');
@@ -581,9 +596,11 @@
           lastResponse = data;
 
           if (data.realtime_flight) {
+            currentRealtimeFieldLabels = data.realtime_flight_labels || {};
             answerEl.textContent = buildRealtimeSummary(data.realtime_flight);
             setRealtimeConfirmState(false);
           } else {
+            currentRealtimeFieldLabels = {};
             answerEl.textContent = data.answer;
             setRealtimeConfirmState(shouldOfferRealtimeConfirm(question), question);
           }
@@ -618,6 +635,7 @@
           const data = await res.json();
           if (!res.ok) throw new Error(data.detail || '实时航班查询失败');
 
+          currentRealtimeFieldLabels = data.realtime_flight_labels || {};
           answerEl.textContent = buildRealtimeSummary(data.realtime_flight || {});
           setConfidence(data.confidence_note || 'realtime-flight');
           renderCitations([]);

@@ -4,6 +4,7 @@ import json
 import hashlib
 import re
 import mimetypes
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -837,6 +838,34 @@ def _load_flight_field_mappings() -> dict[str, str]:
     return mappings
 
 
+def _canonical_field_key(key: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (key or "").strip().lower())
+
+
+def _build_realtime_field_labels(detail_keys: Iterable[str]) -> dict[str, str]:
+    mappings = _load_flight_field_mappings()
+    if not mappings:
+        return {}
+
+    by_canonical: dict[str, str] = {}
+    for mk, label in mappings.items():
+        c = _canonical_field_key(str(mk))
+        if c and c not in by_canonical:
+            by_canonical[c] = str(label)
+
+    labels: dict[str, str] = {}
+    for key in detail_keys:
+        raw = str(key)
+        direct = mappings.get(raw)
+        if direct:
+            labels[raw] = str(direct)
+            continue
+        ckey = _canonical_field_key(raw)
+        if ckey and ckey in by_canonical:
+            labels[raw] = by_canonical[ckey]
+    return labels
+
+
 def _split_realtime_result(result: Any) -> tuple[str, Any, dict[str, Any]]:
     if not isinstance(result, (tuple, list)):
         raise ValueError("invalid realtime result")
@@ -1187,6 +1216,7 @@ def flight_realtime(req: FlightRealtimeRequest) -> dict:
         if result is None:
             raise HTTPException(status_code=404, detail="未识别为实时航班查询问题")
         answer_text, card, details = _split_realtime_result(result)
+        labels = _build_realtime_field_labels(details.keys())
         persisted = _persist_realtime_flight_record(question=question, answer_text=answer_text, card=card)
         return {
             "question": question,
@@ -1194,6 +1224,7 @@ def flight_realtime(req: FlightRealtimeRequest) -> dict:
             "confidence_note": "realtime-flight",
             "realtime_flight": card.model_dump(),
             "realtime_flight_details": details,
+            "realtime_flight_labels": labels,
             "record_path": persisted.get("path"),
             "record_synced": persisted.get("synced", False),
         }
@@ -1207,13 +1238,14 @@ def flight_realtime(req: FlightRealtimeRequest) -> dict:
 def ask(req: AskRequest) -> AskResponse:
     try:
         realtime_result = None
-        if normalize_flight_no(req.question):
+        if req.enable_realtime and normalize_flight_no(req.question):
             try:
                 realtime_result = query_realtime_flight(question=req.question)
             except Exception:
                 realtime_result = None
         if realtime_result is not None:
             answer_text, card, details = _split_realtime_result(realtime_result)
+            labels = _build_realtime_field_labels(details.keys())
             try:
                 _persist_realtime_flight_record(question=req.question, answer_text=answer_text, card=card)
             except Exception:
@@ -1227,6 +1259,7 @@ def ask(req: AskRequest) -> AskResponse:
                 confidence_note="realtime-flight",
                 realtime_flight=card,
                 realtime_flight_details=details,
+                realtime_flight_labels=labels,
             )
 
         result = service.ask(req.question, req.top_k)

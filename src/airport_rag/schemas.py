@@ -16,6 +16,7 @@ class Citation(BaseModel):
 class AskRequest(BaseModel):
     question: str = Field(min_length=2, description="机场业务问题")
     top_k: Optional[int] = Field(default=None, ge=1, le=20)
+    enable_realtime: bool = Field(default=False, description="是否允许本次 /ask 自动触发实时航班查询")
 
 
 class AskResponse(BaseModel):
@@ -26,6 +27,7 @@ class AskResponse(BaseModel):
     confidence_note: str
     realtime_flight: Optional["RealtimeFlightCard"] = None
     realtime_flight_details: Optional[Dict[str, Any]] = None
+    realtime_flight_labels: Optional[Dict[str, str]] = None
 
 
 class RealtimeFlightCard(BaseModel):

@@ -2,6 +2,16 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-05 15:58:18 +0800
+
+- 提交：`fix(realtime-ui): enforce confirm flow and server label mapping`
+- 变更文件：
+  - `src/airport_rag/api.py`
+  - `src/airport_rag/schemas.py`
+  - `src/airport_rag/static/index.html`
+  - `tests/test_realtime_flight_api.py`
+- 备注：修复实时航班详情仍显示英文键名与二次确认未出现问题：ask新增enable_realtime开关默认关闭自动实时，前端统一走二次确认；/flight/realtime返回realtime_flight_labels并优先用于详情渲染；补充并通过回归测试，刷新egg-info元数据。
+
 ## 2026-04-05 15:54:32 +0800
 
 - 提交：`fix(mapping): harden realtime field label resolution`

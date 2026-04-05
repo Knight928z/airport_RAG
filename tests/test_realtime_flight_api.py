@@ -59,7 +59,7 @@ def test_ask_realtime_question_uses_mcp_result(tmp_path: Path, monkeypatch) -> N
     )
 
     client = TestClient(api_module.app)
-    resp = client.post("/ask", json={"question": "MU2456现在延误了吗？"})
+    resp = client.post("/ask", json={"question": "MU2456现在延误了吗？", "enable_realtime": True})
 
     assert resp.status_code == 200
     body = resp.json()
@@ -143,6 +143,11 @@ def test_flight_realtime_endpoint_returns_standard_card(monkeypatch) -> None:
             {"FlightNo": "CA1307", "FlightState": "正常", "BoardGate": "C18"},
         ),
     )
+    monkeypatch.setattr(
+        api_module,
+        "_load_flight_field_mappings",
+        lambda: {"FlightNo": "航班号", "FlightState": "航班动态描述", "BoardGate": "登机口"},
+    )
 
     client = TestClient(api_module.app)
     resp = client.post("/flight/realtime", json={"flight_no": "CA1307"})
@@ -153,6 +158,8 @@ def test_flight_realtime_endpoint_returns_standard_card(monkeypatch) -> None:
     assert body["realtime_flight"]["flight_no"] == "CA1307"
     assert body["realtime_flight"]["gate"] == "C18"
     assert body["realtime_flight_details"]["BoardGate"] == "C18"
+    assert body["realtime_flight_labels"]["FlightNo"] == "航班号"
+    assert body["realtime_flight_labels"]["BoardGate"] == "登机口"
 
 
 def test_normalize_flight_no_works_without_word_boundary_spaces() -> None:

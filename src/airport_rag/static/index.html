@@ -334,7 +334,7 @@
 
       async function loadFlightDetailLabelMappings() {
         try {
-          const res = await fetch('/flight/field-mappings');
+          const res = await fetch(`/flight/field-mappings?_ts=${Date.now()}`, { cache: 'no-store' });
           const data = await res.json();
           if (!res.ok) throw new Error(data.detail || '加载字段映射失败');
           if (data && data.mappings && typeof data.mappings === 'object') {
@@ -349,18 +349,29 @@
       }
 
       function normalizeFieldKey(key) {
-        return String(key || '').replace(/^\uFEFF/, '').trim();
+        return String(key || '')
+          .replace(/^\uFEFF/, '')
+          .replace(/^['"`\s]+|['"`\s]+$/g, '')
+          .trim();
+      }
+
+      function canonicalFieldKey(key) {
+        return normalizeFieldKey(key).toLowerCase().replace(/[^a-z0-9]/g, '');
       }
 
       function getFlightDetailLabelByKey(key) {
         const raw = String(key || '');
         const clean = normalizeFieldKey(raw);
         const lower = clean.toLowerCase();
+        const canonical = canonicalFieldKey(clean);
 
         const direct = flightDetailLabelMap[raw] || flightDetailLabelMap[clean] || flightDetailLabelMap[lower];
         if (direct) return String(direct).trim();
 
-        const found = Object.entries(flightDetailLabelMap).find(([k]) => normalizeFieldKey(k).toLowerCase() === lower);
+        const found = Object.entries(flightDetailLabelMap).find(([k]) => {
+          const nk = normalizeFieldKey(k);
+          return nk.toLowerCase() === lower || canonicalFieldKey(nk) === canonical;
+        });
         if (found && found[1]) return String(found[1]).trim();
 
         return clean || raw;

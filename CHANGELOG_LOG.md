@@ -2,6 +2,15 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-05 15:54:32 +0800
+
+- 提交：`fix(mapping): harden realtime field label resolution`
+- 变更文件：
+  - `src/airport_rag/api.py`
+  - `src/airport_rag/static/index.html`
+  - `tests/test_realtime_flight_api.py`
+- 备注：修复实时航班详细字段映射稳定性：前端增加规范化/无缓存加载/键形态兼容匹配，后端解析字段表时清理引号与反引号；新增回归测试覆盖FlightNo/FlightState/AssistFlightState映射场景。
+
 ## 2026-04-05 15:48:25 +0800
 
 - 提交：`fix(ui): ensure realtime detail labels use mapping table`

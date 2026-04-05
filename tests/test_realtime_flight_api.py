@@ -201,3 +201,27 @@ def test_flight_field_mappings_loaded_from_documents(tmp_path: Path, monkeypatch
     assert body["source_path"] == "airport/实时航班/航班字段"
     assert body["mappings"]["FlightNo"] == "航班号"
     assert body["mappings"]["BoardGate"] == "登机口"
+
+
+def test_flight_field_mappings_strip_quotes_and_backticks(tmp_path: Path, monkeypatch) -> None:
+    doc_root = tmp_path / "documents"
+    mapping_file = doc_root / "airport" / "实时航班" / "航班字段"
+    mapping_file.parent.mkdir(parents=True, exist_ok=True)
+    mapping_file.write_text(
+        "| 字段名 | 信息映射 |\n"
+        "| :--- | :--- |\n"
+        "| `FlightNo` | 航班号 |\n"
+        "| 'FlightState' | 航班动态描述 |\n"
+        "| \"AssistFlightState\" | 辅助航班状态 |\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(api_module, "DOC_ROOT", doc_root)
+    client = TestClient(api_module.app)
+    resp = client.get("/flight/field-mappings")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["mappings"]["FlightNo"] == "航班号"
+    assert body["mappings"]["FlightState"] == "航班动态描述"
+    assert body["mappings"]["AssistFlightState"] == "辅助航班状态"

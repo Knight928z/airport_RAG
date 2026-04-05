@@ -803,6 +803,17 @@ def _load_flight_field_mappings() -> dict[str, str]:
     except UnicodeDecodeError:
         rows = path.read_bytes().decode("gb18030", errors="ignore").splitlines()
 
+    def _clean_cell(text: str) -> str:
+        return (
+            (text or "")
+            .replace("\ufeff", "")
+            .strip()
+            .strip("`")
+            .strip("'")
+            .strip('"')
+            .strip()
+        )
+
     mappings: dict[str, str] = {}
     for raw in rows:
         line = raw.strip()
@@ -818,8 +829,8 @@ def _load_flight_field_mappings() -> dict[str, str]:
         parts = [p.strip() for p in line.strip("|").split("|")]
         if len(parts) < 2:
             continue
-        key = parts[0]
-        label = parts[1]
+        key = _clean_cell(parts[0])
+        label = _clean_cell(parts[1])
         if not key or not label:
             continue
         mappings[key] = label

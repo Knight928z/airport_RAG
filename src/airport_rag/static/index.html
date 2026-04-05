@@ -315,6 +315,7 @@
   let lastResponse = null;
   let currentRealtimeDetails = null;
   let flightDetailLabelMap = {};
+  let flightDetailLabelMapLoaded = false;
   let pendingRealtimeQuestion = '';
 
   const FLIGHT_DETAIL_PRIORITY = [
@@ -338,10 +339,31 @@
           if (!res.ok) throw new Error(data.detail || '加载字段映射失败');
           if (data && data.mappings && typeof data.mappings === 'object') {
             flightDetailLabelMap = data.mappings;
+            flightDetailLabelMapLoaded = true;
+            return;
           }
         } catch (_) {
           flightDetailLabelMap = {};
+          flightDetailLabelMapLoaded = false;
         }
+      }
+
+      function normalizeFieldKey(key) {
+        return String(key || '').replace(/^\uFEFF/, '').trim();
+      }
+
+      function getFlightDetailLabelByKey(key) {
+        const raw = String(key || '');
+        const clean = normalizeFieldKey(raw);
+        const lower = clean.toLowerCase();
+
+        const direct = flightDetailLabelMap[raw] || flightDetailLabelMap[clean] || flightDetailLabelMap[lower];
+        if (direct) return String(direct).trim();
+
+        const found = Object.entries(flightDetailLabelMap).find(([k]) => normalizeFieldKey(k).toLowerCase() === lower);
+        if (found && found[1]) return String(found[1]).trim();
+
+        return clean || raw;
       }
 
       function setError(message) {
@@ -407,7 +429,7 @@
         return `已获取实时航班卡片：${flightNo}，当前${status}，延误 ${delay}。\n起飞时间：${dep}；到达时间：${arr}。`;
       }
 
-      function renderRealtimeFlightDetails(details) {
+      async function renderRealtimeFlightDetails(details) {
         currentRealtimeDetails = details && typeof details === 'object' ? details : null;
         flightDetailListEl.innerHTML = '';
 
@@ -416,6 +438,10 @@
           flightDetailsEl.classList.add('hidden');
           flightToggleDetailEl.textContent = '显示详细航班信息';
           return;
+        }
+
+        if (!flightDetailLabelMapLoaded || Object.keys(flightDetailLabelMap).length === 0) {
+          await loadFlightDetailLabelMappings();
         }
 
         const entries = Object.entries(currentRealtimeDetails);
@@ -430,7 +456,7 @@
         entries.forEach(([key, value]) => {
           const li = document.createElement('li');
           const safeVal = value === null || value === undefined ? '-' : (typeof value === 'object' ? JSON.stringify(value) : String(value));
-          const label = flightDetailLabelMap[key] || key;
+          const label = getFlightDetailLabelByKey(key);
           li.innerHTML = `<strong>${label}</strong>：${safeVal} <span class="meta">(<code>${key}</code>)</span>`;
           flightDetailListEl.appendChild(li);
         });
@@ -440,10 +466,10 @@
         flightToggleDetailEl.textContent = '显示详细航班信息';
       }
 
-      function renderRealtimeFlightCard(card, details = null) {
+      async function renderRealtimeFlightCard(card, details = null) {
         if (!card) {
           flightCardEl.classList.add('hidden');
-          renderRealtimeFlightDetails(null);
+          await renderRealtimeFlightDetails(null);
           return;
         }
         flightNoEl.textContent = card.flight_no || '-';
@@ -457,7 +483,7 @@
         const gate = card.gate || '-';
         flightTerminalGateEl.textContent = `${terminal} / ${gate}`;
         flightCardEl.classList.remove('hidden');
-        renderRealtimeFlightDetails(details);
+        await renderRealtimeFlightDetails(details);
       }
 
       async function submitFeedback(rating, correctedAnswer = '') {
@@ -552,14 +578,14 @@
           }
           renderCitations(data.citations);
           setConfidence(data.confidence_note || 'unknown');
-          renderRealtimeFlightCard(data.realtime_flight || null, data.realtime_flight_details || null);
+          await renderRealtimeFlightCard(data.realtime_flight || null, data.realtime_flight_details || null);
           feedbackStatusEl.textContent = '';
         } catch (err) {
           setError(`问答失败：${err.message}`);
           renderCitations([]);
           setConfidence('error');
           setRealtimeConfirmState(false);
-          renderRealtimeFlightCard(null);
+          await renderRealtimeFlightCard(null);
           lastResponse = null;
         } finally {
           askBtn.disabled = false;
@@ -584,7 +610,7 @@
           answerEl.textContent = buildRealtimeSummary(data.realtime_flight || {});
           setConfidence(data.confidence_note || 'realtime-flight');
           renderCitations([]);
-          renderRealtimeFlightCard(data.realtime_flight || null, data.realtime_flight_details || null);
+          await renderRealtimeFlightCard(data.realtime_flight || null, data.realtime_flight_details || null);
           setRealtimeConfirmState(false);
           lastResponse = {
             answer_id: null,

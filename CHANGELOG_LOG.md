@@ -2,6 +2,15 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-05 15:48:25 +0800
+
+- 提交：`fix(ui): ensure realtime detail labels use mapping table`
+- 变更文件：
+  - `src/airport_rag/static/index.html`
+  - `src/airport_rag_assistant.egg-info/PKG-INFO`
+  - `src/airport_rag_assistant.egg-info/SOURCES.txt`
+- 备注：前端实时详情字段名映射增加规范化匹配与加载兜底，确保FlightNo/FlightState/AssistFlightState显示字段表中文名；同步刷新egg-info元数据(PKG-INFO/SOURCES.txt)。
+
 ## 2026-04-04 11:30:39 +0800
 
 - 提交：`fix(realtime): require confirm for non-flight-no queries`

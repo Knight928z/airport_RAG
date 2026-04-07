@@ -29,7 +29,7 @@ from .schemas import (
 from .service import AirportRAGService
 from .ingest import extract_text_from_image
 from .realtime_flight import query_realtime_flight, normalize_flight_no
-from .eval_cases import SELF_TEST_SEED_CASES
+from .eval_cases import DEFAULT_SELF_TEST_CASES
 
 
 app = FastAPI(title="Airport KB RAG Assistant", version="1.0.0")
@@ -472,30 +472,6 @@ def _record_uncovered_question(
     _append_jsonl(UNCOVERED_LOG, payload)
 
 
-SEED_SELF_TEST_CASES = SELF_TEST_SEED_CASES
-
-
-def _expand_self_test_cases(seed_cases: list[dict]) -> list[dict]:
-    variants = [
-        lambda q: q,
-        lambda q: f"请问{q}",
-        lambda q: f"依据现有规则，{q}",
-        lambda q: f"{q}（请附依据）",
-    ]
-    expanded: list[dict] = []
-    for case in seed_cases:
-        for transform in variants:
-            expanded.append(
-                {
-                    "topic": case["topic"],
-                    "question": transform(case["question"]),
-                    "expect": case["expect"],
-                }
-            )
-    return expanded
-
-
-DEFAULT_SELF_TEST_CASES = _expand_self_test_cases(SEED_SELF_TEST_CASES)
 SELF_TEST_TOPICS = sorted({case["topic"] for case in DEFAULT_SELF_TEST_CASES})
 
 

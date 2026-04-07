@@ -339,6 +339,40 @@ def test_rule_based_answer_for_battery_mah_without_voltage_uses_estimation() -> 
     assert "需航空公司同意" in ans.answer
 
 
+def test_rule_based_answer_for_customs_hotline_is_low_confidence() -> None:
+    retrieved = [
+        RetrievedChunk(
+            chunk_id="ap-border-12367",
+            text="如需边检业务咨询可拨打12367。",
+            source="/data/documents/airport/边防检查须知",
+            page=None,
+            distance=0.1,
+        )
+    ]
+
+    ans = _build_rule_based_answer("海关值班电话是多少？", retrieved)
+
+    assert ans is not None
+    assert ans.note == "low-confidence"
+
+
+def test_rule_based_answer_for_customs_queue_duration_is_low_confidence() -> None:
+    retrieved = [
+        RetrievedChunk(
+            chunk_id="ap-depart-time-1",
+            text="按机场显示大屏及标识指引牌指示，起飞前30~40分钟到相应的登机口候机/登机。",
+            source="/data/documents/airport/出发指南-国内出发",
+            page=None,
+            distance=0.1,
+        )
+    ]
+
+    ans = _build_rule_based_answer("海关现场办理一般排队多久？", retrieved)
+
+    assert ans is not None
+    assert ans.note == "low-confidence"
+
+
 def test_rule_based_answer_for_business_class_baggage_allowance() -> None:
     retrieved = [
         RetrievedChunk(

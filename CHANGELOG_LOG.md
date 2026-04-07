@@ -2,6 +2,16 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-08 01:29:46 +0800
+
+- 提交：`refactor(eval): centralize tested question banks and harden customs fallback`
+- 变更文件：
+  - `src/airport_rag/api.py`
+  - `src/airport_rag/eval_cases.py`
+  - `src/airport_rag/rules.py`
+  - `tests/test_service_rerank.py`
+- 备注：将已测试题目统一集中到 `eval_cases.py`（含 `ALL_TESTED_CASES` 与两组不重复 `200` 题分片）；`/self-test` 改为直接复用集中题库；修复海关热线与海关排队时长误答为 low-confidence 防护；新增回归测试并完成“第二组不一样的200题”回归（200/200）。
+
 ## 2026-04-08 01:18:30 +0800
 
 - 提交：`fix(rules): tighten battery parsing and add regression guards`

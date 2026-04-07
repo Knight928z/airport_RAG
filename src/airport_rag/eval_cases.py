@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Iterable
+
 SELF_TEST_SEED_CASES: list[dict[str, str]] = [
     # 海关（6）
     {"topic": "海关", "question": "入境最多能携带多少现金？", "expect": "answer"},
@@ -109,3 +111,59 @@ QUICK_EVAL_QUESTIONS: list[str] = [
     "充电宝可以托运吗？",
     "20000mAh 3.7V充电宝可以带吗？",
 ]
+
+
+DEFAULT_SELF_TEST_VARIANT_TEMPLATES: list[str] = [
+    "{q}",
+    "请问{q}",
+    "依据现有规则，{q}",
+    "{q}（请附依据）",
+]
+
+
+EXTENDED_SELF_TEST_VARIANT_TEMPLATES: list[str] = [
+    *DEFAULT_SELF_TEST_VARIANT_TEMPLATES,
+    "按机场现行口径，{q}",
+    "请按规定答复：{q}",
+    "用于回归测试：{q}",
+    "给出可执行结论：{q}",
+]
+
+
+def expand_seed_cases(
+    seed_cases: Iterable[dict[str, str]],
+    variant_templates: Iterable[str],
+) -> list[dict[str, str]]:
+    expanded: list[dict[str, str]] = []
+    for case in seed_cases:
+        topic = case["topic"]
+        question = case["question"]
+        expect = case["expect"]
+        for template in variant_templates:
+            expanded.append(
+                {
+                    "topic": topic,
+                    "question": template.format(q=question),
+                    "expect": expect,
+                }
+            )
+    return expanded
+
+
+# API /self-test 默认题集（与历史行为一致：4种问法变体）
+DEFAULT_SELF_TEST_CASES: list[dict[str, str]] = expand_seed_cases(
+    SELF_TEST_SEED_CASES,
+    DEFAULT_SELF_TEST_VARIANT_TEMPLATES,
+)
+
+
+# 已测试题全集（8种问法变体），用于回归抽样与批次管理
+ALL_TESTED_CASES: list[dict[str, str]] = expand_seed_cases(
+    SELF_TEST_SEED_CASES,
+    EXTENDED_SELF_TEST_VARIANT_TEMPLATES,
+)
+
+
+# 两组不重复 200 题（共 400 题）
+TESTED_QUESTION_BATCH_1_200: list[dict[str, str]] = ALL_TESTED_CASES[:200]
+TESTED_QUESTION_BATCH_2_200: list[dict[str, str]] = ALL_TESTED_CASES[200:400]

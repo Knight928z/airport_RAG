@@ -521,6 +521,15 @@ def build_document_lookup_answer(question: str) -> RuleResult | None:
         ]
         return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[])
 
+    if "海关" in q and any(k in q for k in ["客服", "热线", "电话", "联系方式", "值班电话"]):
+        lines = [
+            "结论：当前知识库未检索到可直接回答该问题的业务证据。",
+            "依据：海关热线/值班电话属于时效信息，现有文档未提供可稳定核验的官方号码条款。",
+            "执行建议：请通过海关官方渠道（官网/口岸公告）核验最新联系方式。",
+            "风险提示：直接引用历史号码可能失效并导致办理延误，需人工复核。",
+        ]
+        return RuleResult(answer="\n".join(lines), note="low-confidence", evidence_chunk_ids=[])
+
     if any(k in q for k in ["白云机场", "机场"]) and any(k in q for k in ["客服", "热线", "电话"]):
         txt = _read("边防检查须知")
         line = _pick_line(txt, ["12367", "预约"])
@@ -611,6 +620,10 @@ def localize_answer_text(text: str, lang: str) -> str:
 
 
 def build_rule_based_answer(question: str, retrieved: list[RetrievedChunk]) -> RuleResult | None:
+    customs_low_conf = _build_customs_low_confidence_answer(question)
+    if customs_low_conf is not None:
+        return customs_low_conf
+
     military = _build_disabled_veteran_ticket_answer(question, retrieved)
     if military is not None:
         return military
@@ -658,6 +671,39 @@ def build_rule_based_answer(question: str, retrieved: list[RetrievedChunk]) -> R
     infant = _build_infant_ticket_answer(question, retrieved)
     if infant is not None:
         return infant
+
+    return None
+
+
+def _build_customs_low_confidence_answer(question: str) -> RuleResult | None:
+    q = (question or "").lower()
+
+    asks_customs_hotline = (
+        "海关" in q
+        and any(k in q for k in ["电话", "热线", "联系方式", "客服", "值班电话"])
+    )
+    if asks_customs_hotline:
+        lines = [
+            "结论：当前知识库未检索到可直接回答该问题的业务证据。",
+            "依据：海关热线/值班电话属于时效信息，现有文档缺少可稳定核验的官方号码条款。",
+            "执行建议：请通过海关官方渠道（官网/口岸公告）核验最新联系方式。",
+            "风险提示：直接引用历史号码可能失效并导致办理延误，需人工复核。",
+        ]
+        return RuleResult(answer="\n".join(lines), note="low-confidence", evidence_chunk_ids=[])
+
+    asks_customs_queue_time = (
+        "海关" in q
+        and any(k in q for k in ["排队", "等候", "等待", "办理时长", "多久"])
+        and any(k in q for k in ["多久", "多长", "一般", "平均", "时长", "分钟", "小时"])
+    )
+    if asks_customs_queue_time:
+        lines = [
+            "结论：当前知识库未检索到可直接回答该问题的业务证据。",
+            "依据：海关现场排队时长受时段与客流波动影响，现有文档未提供可执行的固定时长阈值。",
+            "执行建议：请以当日口岸现场排队显示与工作人员指引为准，预留冗余通关时间。",
+            "风险提示：将其他流程时长误用为海关排队时长可能误导行程安排，需人工复核。",
+        ]
+        return RuleResult(answer="\n".join(lines), note="low-confidence", evidence_chunk_ids=[])
 
     return None
 

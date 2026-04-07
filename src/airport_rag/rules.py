@@ -1082,14 +1082,19 @@ def _extract_best_fact_sentence(question: str, retrieved: list[RetrievedChunk]) 
 
 def _build_battery_answer(question: str, retrieved: list[RetrievedChunk]) -> RuleResult | None:
     q_lower = question.lower()
-    has_wh_token = bool(re.search(r"\b\d+(?:\.\d+)?\s*wh\b|\bwh\b", q_lower))
+    has_wh_token = bool(re.search(r"\d+(?:\.\d+)?\s*wh|(?<![a-z])wh(?![a-z])|瓦特小时", q_lower))
     asks_checked = any(k in q_lower for k in ["托运", "行李托运", "可以托运", "能托运"])
     asks_carry = any(k in q_lower for k in ["随身", "携带", "带上", "带上飞机", "手提", "可以带", "能带"])
     if not any(k in q_lower for k in ["充电宝", "锂电池", "额定能量"]) and not has_wh_token:
         return None
 
-    asked_wh = _extract_wh_value(question)
     asked_mah = _extract_mah_value(question)
+    asked_wh = _extract_wh_value(question)
+    wh_is_estimated_from_mah = False
+    if asked_wh is None and asked_mah is not None:
+        # 兼容仅提供 mAh 的常见问法：按充电宝标称电芯电压 3.7V 进行保守估算。
+        asked_wh = (asked_mah / 1000.0) * 3.7
+        wh_is_estimated_from_mah = True
 
     evidence = [
         r for r in retrieved if any(k in f"{r.source} {r.text}".lower() for k in ["充电宝", "锂电池", "wh", "额定能量"])
@@ -1111,9 +1116,15 @@ def _build_battery_answer(question: str, retrieved: list[RetrievedChunk]) -> Rul
 
         subject = "充电宝/锂电池"
         if asked_wh is not None:
-            subject = f"{asked_wh:g}Wh充电宝"
+            if wh_is_estimated_from_mah and asked_mah is not None:
+                subject = f"约{asked_mah:.0f}mAh充电宝（按3.7V估算约{asked_wh:g}Wh）"
+            else:
+                subject = f"{asked_wh:g}Wh充电宝"
         elif asked_mah is not None:
-            subject = f"约{asked_mah:.0f}mAh充电宝"
+            if wh_is_estimated_from_mah:
+                subject = f"约{asked_mah:.0f}mAh充电宝（按3.7V估算约{asked_wh:g}Wh）"
+            else:
+                subject = f"约{asked_mah:.0f}mAh充电宝"
 
         lines = [
             f"结论：针对{subject}，{conclusion}",
@@ -1191,6 +1202,8 @@ def _build_battery_answer(question: str, retrieved: list[RetrievedChunk]) -> Rul
         else:
             if allow_le_100 or forbid_over_100 or allow_100_160_with_approval:
                 conclusion = "可以。"
+                if wh_is_estimated_from_mah:
+                    conclusion = "通常可以（按3.7V估算，最终以铭牌Wh与现场核验为准）。"
     elif asks_carry:
         if allow_le_100 or allow_100_160_with_approval or forbid_over_160:
             conclusion = "可随身携带，但需满足额定能量分级条件（≤100Wh通常可携带；100-160Wh通常需航司同意；>160Wh通常不能携带）。"
@@ -1199,9 +1212,15 @@ def _build_battery_answer(question: str, retrieved: list[RetrievedChunk]) -> Rul
 
     subject = "充电宝/锂电池"
     if asked_wh is not None:
-        subject = f"{asked_wh:g}Wh充电宝"
+        if wh_is_estimated_from_mah and asked_mah is not None:
+            subject = f"约{asked_mah:.0f}mAh充电宝（按3.7V估算约{asked_wh:g}Wh）"
+        else:
+            subject = f"{asked_wh:g}Wh充电宝"
     elif asked_mah is not None:
-        subject = f"约{asked_mah:.0f}mAh充电宝"
+        if wh_is_estimated_from_mah:
+            subject = f"约{asked_mah:.0f}mAh充电宝（按3.7V估算约{asked_wh:g}Wh）"
+        else:
+            subject = f"约{asked_mah:.0f}mAh充电宝"
 
     lines = [
         f"结论：针对{subject}，{conclusion}",

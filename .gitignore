@@ -16,3 +16,6 @@ data/
 
 # Temporary scripts / outputs
 tmp_*.py
+
+# Local project notes
+本项目完整实现全流程细节.txt

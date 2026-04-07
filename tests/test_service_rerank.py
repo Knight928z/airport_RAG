@@ -304,6 +304,41 @@ def test_battery_answer_evidence_avoids_unrelated_alcohol_clause() -> None:
     assert "酒精的体积百分含量" not in ans.answer
 
 
+def test_rule_based_answer_for_battery_wh_without_battery_keyword() -> None:
+    retrieved = [
+        RetrievedChunk(
+            chunk_id="bat-plain-wh-1",
+            text="锂电池额定能量超过100Wh但不超过160Wh，经航空公司同意后方可携带。",
+            source="/data/documents/airport/民航旅客限制随身携带或托运物品目录",
+            page=None,
+            distance=0.1,
+        )
+    ]
+
+    ans = _build_rule_based_answer("120wh能带上飞机吗", retrieved)
+
+    assert ans is not None
+    assert "有条件可以" in ans.answer
+
+
+def test_rule_based_answer_for_battery_mah_without_voltage_uses_estimation() -> None:
+    retrieved = [
+        RetrievedChunk(
+            chunk_id="bat-mah-1",
+            text="充电宝额定能量超过100Wh但不超过160Wh，经航空公司同意后方可携带。",
+            source="/data/documents/airport/民航旅客限制随身携带或托运物品目录",
+            page=None,
+            distance=0.1,
+        )
+    ]
+
+    ans = _build_rule_based_answer("30000mAh充电宝可以带吗", retrieved)
+
+    assert ans is not None
+    assert "3.7V估算" in ans.answer
+    assert "需航空公司同意" in ans.answer
+
+
 def test_rule_based_answer_for_business_class_baggage_allowance() -> None:
     retrieved = [
         RetrievedChunk(

@@ -65,6 +65,16 @@ SELF_TEST_SEED_CASES: list[dict[str, str]] = [
     {"topic": "行李", "question": "打火机能不能随身过安检？", "expect": "answer"},
     {"topic": "行李", "question": "托运行李超重收费标准是多少元每公斤？", "expect": "low-confidence"},
 
+    # 行李-锂电池/充电宝专项（+8）
+    {"topic": "行李", "question": "锂电池可以托运吗？", "expect": "answer"},
+    {"topic": "行李", "question": "充电宝可以托运吗？", "expect": "answer"},
+    {"topic": "行李", "question": "120Wh充电宝能随身携带吗？", "expect": "answer"},
+    {"topic": "行李", "question": "160Wh充电宝可以带上飞机吗？", "expect": "answer"},
+    {"topic": "行李", "question": "161Wh充电宝还能带吗？", "expect": "answer"},
+    {"topic": "行李", "question": "20000mAh 3.7V充电宝可以带吗？", "expect": "answer"},
+    {"topic": "行李", "question": "30000mAh 3.7V充电宝可以带吗？", "expect": "answer"},
+    {"topic": "行李", "question": "没有标注Wh的充电宝能带上飞机吗？", "expect": "answer"},
+
     # 航司（+5）
     {"topic": "航司", "question": "南航官方客服热线电话是多少？", "expect": "answer"},
     {"topic": "航司", "question": "南航境外客服电话怎么联系？", "expect": "answer"},
@@ -95,4 +105,7 @@ QUICK_EVAL_QUESTIONS: list[str] = [
     "国内出发值机柜台一般什么时候关闭？",
     "外国人入境卡在哪领取？",
     "入境最多能携带多少现金？",
+    "锂电池可以托运吗？",
+    "充电宝可以托运吗？",
+    "20000mAh 3.7V充电宝可以带吗？",
 ]

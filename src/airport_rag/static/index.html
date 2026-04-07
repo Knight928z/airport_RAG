@@ -241,13 +241,17 @@
             <button id="btn-confirm-realtime" type="button" class="secondary">查询实时航班</button>
           </div>
         </div>
-        <div class="feedback-row">
+        <div id="feedback-row" class="feedback-row hidden">
           <button id="btn-like" type="button">👍 点赞</button>
           <button id="btn-dislike" type="button">👎 点踩</button>
         </div>
-        <textarea id="corrected-answer" placeholder="如果答案不准确，可在这里提交你认为正确的答案（用于后续知识库更新/模型优化）。" style="margin-top:10px; min-height:72px;"></textarea>
+        <div id="correction-box" class="hidden">
+          <textarea id="corrected-answer" placeholder="如已点踩，请填写纠错内容后提交（一次点踩仅记录一次）。" style="margin-top:10px; min-height:72px;"></textarea>
+          <div class="row" style="margin-top:8px;">
+            <button id="btn-submit-correction" type="button" class="secondary">提交点踩与纠错</button>
+          </div>
+        </div>
         <div class="row" style="margin-top:8px;">
-          <button id="btn-submit-correction" type="button" class="secondary">提交纠错</button>
           <span id="feedback-status" class="meta"></span>
         </div>
       </section>
@@ -292,8 +296,10 @@
   const topKEl = document.getElementById('top-k');
   const confidenceEl = document.getElementById('confidence');
   const chips = Array.from(document.querySelectorAll('.chip'));
+  const feedbackRowEl = document.getElementById('feedback-row');
   const likeBtn = document.getElementById('btn-like');
   const dislikeBtn = document.getElementById('btn-dislike');
+  const correctionBoxEl = document.getElementById('correction-box');
   const correctedAnswerEl = document.getElementById('corrected-answer');
   const submitCorrectionBtn = document.getElementById('btn-submit-correction');
   const feedbackStatusEl = document.getElementById('feedback-status');
@@ -314,10 +320,85 @@
 
   let lastResponse = null;
   let currentRealtimeDetails = null;
-  let flightDetailLabelMap = {};
-  let flightDetailLabelMapLoaded = false;
-  let currentRealtimeFieldLabels = {};
+  let pendingDislike = false;
   let pendingRealtimeQuestion = '';
+
+  const FLIGHT_DETAIL_LABEL_MAP = {
+    fcategory: '航班类别（客运/货运等）',
+    ftype: '机型代码',
+    fservice: '服务等级',
+    FirstClassCheckinTable: '头等舱值机柜台信息',
+    BusinessCheckinTable: '公务舱值机柜台信息',
+    FlightNo: '航班号',
+    FlightCompany: '航空公司名称',
+    FlightDepcode: '出发地机场三字码',
+    FlightArrcode: '目的地机场三字码',
+    AircraftNumber: '飞机注册号',
+    FlightDeptimePlanDate: '计划起飞时间',
+    FlightArrtimePlanDate: '计划到达时间',
+    FlightDeptimeReadyDate: '准备起飞时间',
+    FlightArrtimeReadyDate: '准备到达时间',
+    FlightDeptimeDate: '实际起飞时间',
+    FlightArrtimeDate: '实际到达时间',
+    FlightIngateTime: '登机口开始时间',
+    FlightOutgateTime: '登机口结束时间',
+    CheckinTable: '值机柜台区域',
+    CheckDoor: '值机柜台门号',
+    BoardGate: '登机口',
+    ReachExit: '到达出口',
+    BaggageID: '行李转盘号',
+    BoardState: '登机状态',
+    FlightState: '航班动态描述',
+    FlightHTerminal: '始发航站楼',
+    FlightTerminal: '到达航站楼',
+    org_timezone: '出发地时区偏移',
+    dst_timezone: '目的地时区偏移',
+    ShareFlightNo: '共享航班号',
+    StopFlag: '是否经停',
+    ShareFlag: '是否共享航班',
+    ArrStandGate: '到达停机位',
+    DepStandGate: '出发停机位',
+    DelayReason: '延误原因',
+    Food: '餐食代码',
+    LastCheckinTime: '最晚值机时间',
+    EstimateBoardingStartTime: '预计开始登机时间',
+    EstimateBoardingEndTime: '预计结束登机时间',
+    FlightDep: '出发城市中文名',
+    FlightArr: '到达城市中文名',
+    deptel: '出发机场联系电话',
+    arrtel: '到达机场联系电话',
+    airlinetel: '航空公司联系电话',
+    bridge: '出发登机桥信息',
+    arr_bridge: '到达登机桥信息',
+    FlightDepAirport: '出发机场完整名称',
+    FlightArrAirport: '到达机场完整名称',
+    OntimeRate: '航班准点率',
+    generic: '飞机型号通用名称',
+    FlightYear: '机龄',
+    ArrOntimeRate: '到达准点率',
+    DepWeather: '出发地天气',
+    ArrWeather: '目的地天气',
+    FlightDuration: '飞行时长',
+    distance: '航程距离',
+    FastestExitDuration: '最快下机耗时',
+    SlowestExitDuration: '最慢下机耗时',
+    FastestExitTime: '最快下机参考时间',
+    SlowestExitTime: '最慢下机参考时间',
+    VeryZhunReadyDeptimeDate: '精确准备起飞时间',
+    VeryZhunReadyArrtimeDate: '精确准备到达时间',
+    AssistFlightState: '辅助航班状态',
+    DepAirportLat: '出发机场纬度',
+    DepAirportLon: '出发机场经度',
+    DepTerminalLat: '出发航站楼纬度',
+    DepTerminalLon: '出发航站楼经度',
+    ArrAirportLat: '到达机场纬度',
+    ArrAirportLon: '到达机场经度',
+    ArrTerminalLat: '到达航站楼纬度',
+    ArrTerminalLon: '到达航站楼经度',
+    FlightStateNum: '航班状态数字编码',
+    StopAirportCode: '经停机场三字码',
+    StopCity: '经停城市',
+  };
 
   const FLIGHT_DETAIL_PRIORITY = [
     'FlightNo', 'flight_no', 'flightNo',
@@ -333,22 +414,6 @@
     'ReachExit', 'arrival_gate',
   ];
 
-      async function loadFlightDetailLabelMappings() {
-        try {
-          const res = await fetch(`/flight/field-mappings?_ts=${Date.now()}`, { cache: 'no-store' });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.detail || '加载字段映射失败');
-          if (data && data.mappings && typeof data.mappings === 'object') {
-            flightDetailLabelMap = data.mappings;
-            flightDetailLabelMapLoaded = true;
-            return;
-          }
-        } catch (_) {
-          flightDetailLabelMap = {};
-          flightDetailLabelMapLoaded = false;
-        }
-      }
-
       function normalizeFieldKey(key) {
         return String(key || '')
           .replace(/^\uFEFF/, '')
@@ -363,19 +428,31 @@
       function getFlightDetailLabelByKey(key) {
         const raw = String(key || '');
         const clean = normalizeFieldKey(raw);
-        const lower = clean.toLowerCase();
         const canonical = canonicalFieldKey(clean);
 
-        const direct = flightDetailLabelMap[raw] || flightDetailLabelMap[clean] || flightDetailLabelMap[lower];
+        const direct = FLIGHT_DETAIL_LABEL_MAP[raw] || FLIGHT_DETAIL_LABEL_MAP[clean];
         if (direct) return String(direct).trim();
 
-        const found = Object.entries(flightDetailLabelMap).find(([k]) => {
-          const nk = normalizeFieldKey(k);
-          return nk.toLowerCase() === lower || canonicalFieldKey(nk) === canonical;
-        });
+        const found = Object.entries(FLIGHT_DETAIL_LABEL_MAP).find(([k]) => canonicalFieldKey(k) === canonical);
         if (found && found[1]) return String(found[1]).trim();
 
         return clean || raw;
+      }
+
+      function setFeedbackVisibility(showButtons) {
+        if (showButtons) {
+          feedbackRowEl.classList.remove('hidden');
+        } else {
+          feedbackRowEl.classList.add('hidden');
+        }
+      }
+
+      function setCorrectionVisibility(show) {
+        if (show) {
+          correctionBoxEl.classList.remove('hidden');
+        } else {
+          correctionBoxEl.classList.add('hidden');
+        }
       }
 
       function setError(message) {
@@ -432,20 +509,6 @@
         }
       }
 
-      function getRuntimeLabelFromServer(key) {
-        const raw = String(key || '');
-        const clean = normalizeFieldKey(raw);
-        const lower = clean.toLowerCase();
-        const canonical = canonicalFieldKey(clean);
-        const direct = currentRealtimeFieldLabels[raw] || currentRealtimeFieldLabels[clean] || currentRealtimeFieldLabels[lower];
-        if (direct) return String(direct).trim();
-        const found = Object.entries(currentRealtimeFieldLabels).find(([k]) => {
-          const nk = normalizeFieldKey(k);
-          return nk.toLowerCase() === lower || canonicalFieldKey(nk) === canonical;
-        });
-        return found && found[1] ? String(found[1]).trim() : '';
-      }
-
       function buildRealtimeSummary(card) {
         const flightNo = card.flight_no || '未知航班';
         const status = card.status || '状态未知';
@@ -466,10 +529,6 @@
           return;
         }
 
-        if (!flightDetailLabelMapLoaded || Object.keys(flightDetailLabelMap).length === 0) {
-          await loadFlightDetailLabelMappings();
-        }
-
         const entries = Object.entries(currentRealtimeDetails);
         const priorityMap = new Map(FLIGHT_DETAIL_PRIORITY.map((k, i) => [k, i]));
         entries.sort(([a], [b]) => {
@@ -482,7 +541,7 @@
         entries.forEach(([key, value]) => {
           const li = document.createElement('li');
           const safeVal = value === null || value === undefined ? '-' : (typeof value === 'object' ? JSON.stringify(value) : String(value));
-          const label = getRuntimeLabelFromServer(key) || getFlightDetailLabelByKey(key);
+          const label = getFlightDetailLabelByKey(key);
           li.innerHTML = `<strong>${label}</strong>：${safeVal} <span class="meta">(<code>${key}</code>)</span>`;
           flightDetailListEl.appendChild(li);
         });
@@ -550,6 +609,8 @@
         }
         const suffix = tips.length ? `，${tips.join('；')}` : '';
         feedbackStatusEl.textContent = `反馈已记录（${new Date().toLocaleTimeString()}）${suffix}。`;
+        setCorrectionVisibility(false);
+        pendingDislike = false;
       }
 
       async function ingestDefault(showStatus = false) {
@@ -579,6 +640,10 @@
         askBtn.textContent = '正在检索...';
         answerEl.textContent = '处理中，请稍候...';
         setConfidence('processing');
+  setFeedbackVisibility(false);
+  setCorrectionVisibility(false);
+  pendingDislike = false;
+  correctedAnswerEl.value = '';
 
         try {
           if (autoSyncEl.checked && !isRealtimeFlightQuestion(question)) {
@@ -596,14 +661,13 @@
           lastResponse = data;
 
           if (data.realtime_flight) {
-            currentRealtimeFieldLabels = data.realtime_flight_labels || {};
             answerEl.textContent = buildRealtimeSummary(data.realtime_flight);
             setRealtimeConfirmState(false);
           } else {
-            currentRealtimeFieldLabels = {};
             answerEl.textContent = data.answer;
             setRealtimeConfirmState(shouldOfferRealtimeConfirm(question), question);
           }
+          setFeedbackVisibility(true);
           renderCitations(data.citations);
           setConfidence(data.confidence_note || 'unknown');
           await renderRealtimeFlightCard(data.realtime_flight || null, data.realtime_flight_details || null);
@@ -635,12 +699,14 @@
           const data = await res.json();
           if (!res.ok) throw new Error(data.detail || '实时航班查询失败');
 
-          currentRealtimeFieldLabels = data.realtime_flight_labels || {};
           answerEl.textContent = buildRealtimeSummary(data.realtime_flight || {});
           setConfidence(data.confidence_note || 'realtime-flight');
           renderCitations([]);
           await renderRealtimeFlightCard(data.realtime_flight || null, data.realtime_flight_details || null);
           setRealtimeConfirmState(false);
+          setFeedbackVisibility(true);
+          setCorrectionVisibility(false);
+          pendingDislike = false;
           lastResponse = {
             answer_id: null,
             question: data.question || pendingRealtimeQuestion,
@@ -676,14 +742,17 @@
       });
 
       dislikeBtn.addEventListener('click', async () => {
-        try {
-          await submitFeedback(-1);
-        } catch (err) {
-          feedbackStatusEl.textContent = `点踩失败：${err.message}`;
-        }
+        pendingDislike = true;
+        setCorrectionVisibility(true);
+        correctedAnswerEl.focus();
+        feedbackStatusEl.textContent = '已标记点踩，请填写纠错内容后提交（仅记录一次）。';
       });
 
       submitCorrectionBtn.addEventListener('click', async () => {
+        if (!pendingDislike) {
+          feedbackStatusEl.textContent = '请先点踩，再提交纠错。';
+          return;
+        }
         const corrected = correctedAnswerEl.value.trim();
         if (!corrected) {
           feedbackStatusEl.textContent = '请先填写纠错内容。';
@@ -717,8 +786,6 @@
           questionInput.focus();
         });
       });
-
-      loadFlightDetailLabelMappings();
     </script>
   </body>
 </html>

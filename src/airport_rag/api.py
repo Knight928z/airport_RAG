@@ -208,7 +208,7 @@ def _merge_patch_into_main_doc(rel_path: str, patch_file: Path, *, recreate_head
 
     rel_parts = Path(rel_path).parts
     root_folder = rel_parts[0] if rel_parts else "airport"
-    main_doc = _safe_doc_path(f"{root_folder}/知识补丁合并稿.md")
+    main_doc = _safe_doc_path(f"{root_folder}/patch/知识补丁合并稿.md")
     main_doc.parent.mkdir(parents=True, exist_ok=True)
     if not main_doc.exists():
         main_doc.write_text(

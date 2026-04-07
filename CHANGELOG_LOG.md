@@ -2,6 +2,17 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-08 01:05:40 +0800
+
+- 提交：`fix(rules): stabilize battery answers and expand eval regression`
+- 变更文件：
+  - `src/airport_rag/api.py`
+  - `src/airport_rag/eval_cases.py`
+  - `src/airport_rag/rules.py`
+  - `src/airport_rag/static/index.html`
+  - `"\346\234\254\351\241\271\347\233\256\345\256\214\346\225\264\345\256\236\347\216\260\345\205\250\346\265\201\347\250\213\347\273\206\350\212\202.txt"`
+- 备注：补齐上一次与本次改动：前端反馈交互改为答后显示+点踩后单次纠错提交，实时字段映射改为前端传统内置表；修复锂电池/充电宝问答在无证据召回时的规则兜底（含mAh+电压换算），新增多条电池专项eval样例并完成回归验证；新增《本项目完整实现全流程细节.txt》。
+
 ## 2026-04-05 15:58:18 +0800
 
 - 提交：`fix(realtime-ui): enforce confirm flow and server label mapping`

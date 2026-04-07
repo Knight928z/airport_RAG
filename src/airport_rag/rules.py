@@ -1084,14 +1084,44 @@ def _build_battery_answer(question: str, retrieved: list[RetrievedChunk]) -> Rul
     q_lower = question.lower()
     has_wh_token = bool(re.search(r"\b\d+(?:\.\d+)?\s*wh\b|\bwh\b", q_lower))
     asks_checked = any(k in q_lower for k in ["托运", "行李托运", "可以托运", "能托运"])
+    asks_carry = any(k in q_lower for k in ["随身", "携带", "带上", "带上飞机", "手提", "可以带", "能带"])
     if not any(k in q_lower for k in ["充电宝", "锂电池", "额定能量"]) and not has_wh_token:
         return None
+
+    asked_wh = _extract_wh_value(question)
+    asked_mah = _extract_mah_value(question)
 
     evidence = [
         r for r in retrieved if any(k in f"{r.source} {r.text}".lower() for k in ["充电宝", "锂电池", "wh", "额定能量"])
     ]
     if not evidence:
-        return None
+        if asks_checked:
+            conclusion = "不能托运。"
+        elif asked_wh is not None:
+            if asked_wh > 160:
+                conclusion = "不能。"
+            elif asked_wh > 100:
+                conclusion = "有条件可以（通常需航空公司同意）。"
+            else:
+                conclusion = "可以。"
+        elif asks_carry:
+            conclusion = "请先确认充电宝铭牌Wh值后按分级判断（≤100Wh通常可携带；100-160Wh通常需航司同意；>160Wh通常不能携带）。"
+        else:
+            conclusion = "请先确认是否托运以及额定能量（Wh）后再判断。"
+
+        subject = "充电宝/锂电池"
+        if asked_wh is not None:
+            subject = f"{asked_wh:g}Wh充电宝"
+        elif asked_mah is not None:
+            subject = f"约{asked_mah:.0f}mAh充电宝"
+
+        lines = [
+            f"结论：针对{subject}，{conclusion}",
+            "依据：根据民航旅客携带锂电池/充电宝的通行规则，充电宝通常禁止托运，随身携带按Wh分级管理。",
+            "执行建议：以航空公司与安检现场最新规定为准，必要时提前联系航司确认。",
+            "风险提示：若产品无明确Wh标识或无厂牌参数，现场可能拒绝放行，需人工复核。",
+        ]
+        return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[])
 
     def _battery_item_score(item: RetrievedChunk) -> tuple[int, float]:
         joined = f"{item.source} {item.text}".lower()
@@ -1116,7 +1146,6 @@ def _build_battery_answer(question: str, retrieved: list[RetrievedChunk]) -> Rul
 
     evidence = sorted(evidence, key=_battery_item_score, reverse=True)
 
-    asked_wh = _extract_wh_value(question)
     text_all = "\n".join(r.text.lower() for r in evidence[:8])
 
     forbid_over_100 = bool(
@@ -1141,6 +1170,9 @@ def _build_battery_answer(question: str, retrieved: list[RetrievedChunk]) -> Rul
         joined = "\n".join((r.text or "").lower() for r in evidence[:8])
         if "禁止作为行李托运" in joined or ("锂电池" in joined and "托运" in joined and any(k in joined for k in ["禁止", "不得", "不能"])):
             conclusion = "不能托运。"
+        else:
+            # 若用户明确问“是否托运”，按行业通行条款给出明确结论，避免落到“人工复核”
+            conclusion = "不能托运。"
 
     if asked_wh is not None:
         if asked_wh > 160:
@@ -1159,9 +1191,20 @@ def _build_battery_answer(question: str, retrieved: list[RetrievedChunk]) -> Rul
         else:
             if allow_le_100 or forbid_over_100 or allow_100_160_with_approval:
                 conclusion = "可以。"
+    elif asks_carry:
+        if allow_le_100 or allow_100_160_with_approval or forbid_over_160:
+            conclusion = "可随身携带，但需满足额定能量分级条件（≤100Wh通常可携带；100-160Wh通常需航司同意；>160Wh通常不能携带）。"
+        elif asked_mah is not None:
+            conclusion = f"检测到约{asked_mah:.0f}mAh容量，请先确认铭牌Wh值后按分级规则执行（≤100Wh / 100-160Wh / >160Wh）。"
+
+    subject = "充电宝/锂电池"
+    if asked_wh is not None:
+        subject = f"{asked_wh:g}Wh充电宝"
+    elif asked_mah is not None:
+        subject = f"约{asked_mah:.0f}mAh充电宝"
 
     lines = [
-        f"结论：针对{asked_wh if asked_wh is not None else '该'}Wh充电宝，{conclusion}",
+        f"结论：针对{subject}，{conclusion}",
         "依据：",
     ]
     for idx, item in enumerate(evidence[:2], start=1):
@@ -1297,7 +1340,25 @@ def _build_infant_ticket_answer(question: str, retrieved: list[RetrievedChunk]) 
 
 
 def _extract_wh_value(text: str) -> float | None:
-    m = re.search(r"(\d+(?:\.\d+)?)\s*wh", text.lower())
+    lowered = text.lower()
+    m = re.search(r"(\d+(?:\.\d+)?)\s*wh", lowered)
+    if m:
+        return float(m.group(1))
+
+    # 兼容 mAh 问法：若给出电压，则换算 Wh = Ah * V
+    mah_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:mah|毫安时|毫安)", lowered)
+    if not mah_match:
+        return None
+    v_match = re.search(r"(\d+(?:\.\d+)?)\s*v", lowered)
+    if not v_match:
+        return None
+    mah = float(mah_match.group(1))
+    voltage = float(v_match.group(1))
+    return (mah / 1000.0) * voltage
+
+
+def _extract_mah_value(text: str) -> float | None:
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:mah|毫安时|毫安)", text.lower())
     if not m:
         return None
     return float(m.group(1))

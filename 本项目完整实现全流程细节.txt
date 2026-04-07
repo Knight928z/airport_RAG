@@ -1,0 +1,366 @@
+机场知识库 RAG 助手｜完整实现全流程细节文档
+
+版本说明
+- 文档目标：完整描述当前项目在代码层面的实现路径与运行全链路，便于交接、运维、二次开发。
+- 适用范围：当前仓库（airport_RAG）主分支实现。
+
+==================================================
+一、项目定位与目标
+==================================================
+本项目是一个面向机场业务场景的中文 RAG（Retrieval-Augmented Generation）系统，核心目标：
+1) 对机场/航司规章进行可追溯问答（有引用依据）
+2) 对复杂高风险问题采用规则优先，减少幻觉
+3) 提供管理后台（文档CRUD、批量上传、OCR校对、补丁治理）
+4) 接入实时航班能力（MCP）并以卡片结构展示
+5) 形成“用户反馈 -> 自动补丁 -> 入库 -> 再回答”的闭环
+
+==================================================
+二、总体架构
+==================================================
+系统分为 7 层：
+
+A. 接口层（FastAPI）
+- 文件：src/airport_rag/api.py
+- 负责：HTTP 路由、请求校验、前后端数据交换、流程编排。
+
+B. 业务编排层（RAG Service）
+- 文件：src/airport_rag/service.py
+- 负责：检索、重排、规则判定、低置信兜底、模型生成（可选）。
+
+C. 规则层（Rules Engine）
+- 文件：src/airport_rag/rules.py
+- 负责：关键词体系、跨语言扩展、主题识别、专项规则回答（行李、票务、海关、边检等）。
+
+D. 实时航班层（MCP Client）
+- 文件：src/airport_rag/realtime_flight.py
+- 负责：MCP工具发现、参数适配、结果标准化、结构化字段抽取。
+
+E. 检索存储层（Chroma + Embedding）
+- 文件：src/airport_rag/vector_store.py, embeddings.py
+- 负责：向量入库、向量查询、维度异常与查询不稳定兜底。
+
+F. 入库层（Ingest + OCR）
+- 文件：src/airport_rag/ingest.py
+- 负责：文档读取、切分、元数据生成、图片OCR提取。
+
+G. 前端展示层（静态页面）
+- 文件：src/airport_rag/static/index.html（问答页）
+- 文件：src/airport_rag/static/admin.html（管理页）
+- 文件：src/airport_rag/static/patches.html（补丁治理）
+- 文件：src/airport_rag/static/ocr_review.html（OCR校对）
+
+==================================================
+三、核心目录与数据约定
+==================================================
+1) 代码目录
+- src/airport_rag/*：核心代码
+- tests/*：回归测试
+
+2) 数据目录（运行时）
+- data/documents/airport/：机场规章
+- data/documents/<航司代码>/：航司规章（如 CZ/MU/CA/9C）
+- data/documents/airport/实时航班/：实时航班落盘记录
+- data/documents/airport/实时航班/航班字段：实时字段映射表（字段名->中文）
+
+3) 向量目录
+- data/chroma/：Chroma持久化目录
+
+4) 反馈与补丁目录
+- data/feedback/answer_feedback.jsonl
+- data/feedback/uncovered_questions.jsonl
+- data/feedback/patch_registry.jsonl
+- data/feedback/patch_audit.jsonl
+- data/patches/{scope}/{topic}/{tier}/...：补丁分层归档
+
+5) 本地私密配置
+- data/private/local.secrets.env（默认自动加载，且不入Git）
+
+==================================================
+四、配置与环境变量
+==================================================
+配置入口：src/airport_rag/config.py
+
+主要变量：
+- OPENAI_API_KEY, OPENAI_MODEL
+- RAG_EMBEDDING_BACKEND（默认 sentence_transformers）
+- RAG_EMBEDDING_MODEL（默认 BAAI/bge-small-zh-v1.5）
+- RAG_VECTOR_DIR（默认 ./data/chroma）
+- RAG_COLLECTION（默认 airport_kb）
+- RAG_TOP_K（默认 5）
+
+实时航班变量：
+- VARIFLIGHT_MCP_URL
+- VARIFLIGHT_MCP_API_KEY
+- VARIFLIGHT_MCP_TIMEOUT
+
+私密文件变量：
+- RAG_PRIVATE_SECRETS_FILE（可覆盖默认私密env路径）
+
+==================================================
+五、文档入库全流程
+==================================================
+入口：
+- POST /ingest
+- POST /ingest/default
+- 管理端上传（/admin/docs, /admin/docs/bulk）
+
+流程细节：
+1) ingest.load_documents(path)
+   - 支持 .txt/.md/.pdf/无后缀文本
+   - 支持图片（png/jpg/jpeg/webp/tiff/bmp）OCR提取
+2) split_text（基于 langchain_utils）分块
+3) 生成 chunk_id（uuid5，基于 source|page|index|content）
+4) 提取元数据
+   - source, page, doc_scope, carrier
+5) embeddings.embed_documents
+   - 优先 sentence-transformers
+   - 若加载失败，回退 hashing embedding
+6) vector_store.add_chunks(upsert)
+   - 处理维度不一致异常（重建 collection）
+
+==================================================
+六、问答（/ask）全流程
+==================================================
+请求模型：AskRequest
+- question
+- top_k
+- enable_realtime（默认 false）
+
+A. 实时航班触发策略（当前实现）
+- /ask 默认不自动实时（enable_realtime=false）
+- 只有 enable_realtime=true 且问题中含明确航班号，才会尝试实时航班
+- 目的是降低误触发
+
+B. 常规RAG流程（service.ask）
+1) _ensure_index_ready：索引为空时尝试从 data/documents 预热入库
+2) 构建 source policy（机场/航司范围）
+3) 跨语言查询扩展（中英互补词）
+4) 向量检索 + fallback 查询扩展检索
+5) 重排 + 相关性过滤 + 聚焦
+6) 规则优先生成：
+   - 票务保险退保
+   - 文档查找
+   - 退改签
+   - 高优先规则（如电池、出发时效）
+7) 低置信判定（无明确事实）
+8) 如配置 OpenAI 可模型生成，否则抽取式回答
+9) 生成 citations（source/page/snippet/chunk_id）
+
+C. 低置信处理
+- confidence_note in {low-confidence, index-empty}
+- 自动写入 uncovered_questions.jsonl（由 /ask 路径触发）
+
+==================================================
+七、实时航班（/flight/realtime）全流程
+==================================================
+入口：POST /flight/realtime
+- 输入：question 或 flight_no
+- 输出：
+  - answer
+  - realtime_flight（标准卡片）
+  - realtime_flight_details（明细字段）
+  - realtime_flight_labels（后端映射后的中文标签）
+
+流程细节：
+1) 实时意图识别
+   - normalize_flight_no + 关键词判定
+2) MCP 客户端初始化
+   - VariFlightMCPClient
+3) 工具发现/选择
+   - 优先 searchFlightsByNumber（有航班号）
+4) 参数候选重试
+   - 多套 arguments 逐个调用，减少工具参数差异导致失败
+5) HTTP 兼容
+   - 支持 307/308 重定向
+   - Accept 包含 application/json,text/event-stream
+6) 结果解析
+   - 提取 text
+   - 提取结构化 details（含嵌套 dict 文本解析）
+   - 构建标准化 RealtimeFlightCard
+7) 异常识别
+   - 工具 error 文本识别并抛错
+8) 自动落盘
+   - data/documents/airport/实时航班/YYYY-MM-DD-<航班号>.md
+9) 自动入库
+   - 落盘后触发 ingest，便于后续检索追溯
+
+==================================================
+八、实时字段中文映射实现
+==================================================
+映射来源：
+- data/documents/airport/实时航班/航班字段（Markdown表格）
+
+后端实现：
+1) /flight/field-mappings
+   - 读取字段映射表并返回 mappings
+2) /flight/realtime
+   - 根据本次 details.keys() 计算 realtime_flight_labels
+   - 使用 canonical key 匹配（兼容 FlightNo / flight_no / flight-no）
+
+前端实现（index.html）：
+1) 详情渲染优先使用 realtime_flight_labels
+2) 若缺失，再回退到 /flight/field-mappings 加载结果
+3) 前端也有 normalize/canonical 匹配兜底
+
+当前展示格式：
+- 中文标签：字段值（原始Key）
+例：航班号：CZ325 (FlightNo)
+
+==================================================
+九、前端问答与“二次确认查询实时航班”
+==================================================
+页面：/app -> static/index.html
+
+交互策略：
+1) 用户点击“开始问答”
+2) 前端请求 /ask 时固定 enable_realtime=false
+3) 若问题疑似航班实时意图：显示提示
+   “系统暂无此航班信息，是否查询？”
+4) 用户点击“查询实时航班”后，才调用 /flight/realtime
+5) 返回卡片 + 可切换详细字段展示
+
+目标：
+- 避免普通问题误触发实时航班API
+- 把实时查询从“自动触发”变“用户确认触发”
+
+==================================================
+十、反馈闭环与补丁治理
+==================================================
+入口：POST /feedback
+
+链路：
+1) 写 answer_feedback.jsonl
+2) 触发 _maybe_apply_feedback_patch
+   - 去重（fingerprint）
+   - 分层（high/medium/low）
+   - 按主题归档
+3) 达阈值自动 merge 到 知识补丁合并稿
+4) 触发 ingest 同步
+5) 尝试 service.ask 生成 iterated_answer
+
+治理接口：
+- GET /admin/patches/stats
+- POST /admin/patches/review-merge
+
+==================================================
+十一、管理后台能力
+==================================================
+1) 文档管理
+- 列表、树、搜索、内容读取、创建、更新、删除、批量上传
+
+2) 自动分类
+- airport 与各航司目录自动归类
+
+3) 二进制/预览
+- /admin/docs/raw 使用 inline 响应，支持浏览器预览（如PDF）
+
+4) OCR 审核
+- 列出 *.ocr.md
+- 编辑保存并可自动同步入库
+
+==================================================
+十二、接口清单（核心）
+==================================================
+- GET  /health
+- GET  /app
+- GET  /admin
+- GET  /admin/patches
+- GET  /admin/ocr-review
+- POST /ingest
+- POST /ingest/default
+- POST /ask
+- POST /flight/realtime
+- GET  /flight/field-mappings
+- POST /feedback
+- GET  /admin/patches/stats
+- POST /admin/patches/review-merge
+- GET  /self-test
+- 以及 /admin/docs* /admin/tree /admin/search /admin/ocr-review/items 等管理接口
+
+==================================================
+十三、测试体系
+==================================================
+测试目录：tests/
+
+关键用例：
+- test_realtime_flight_api.py
+  - /ask 实时与非实时分流
+  - /flight/realtime 标准字段
+  - 字段映射表解析（含引号/反引号）
+- test_feedback_logging.py
+  - 反馈闭环写入与补丁链路
+- test_admin_patches.py
+  - 补丁治理统计与审核合并
+- test_admin_ocr_upload.py / test_admin_ocr_review.py
+  - OCR 上传与人工校对
+- test_service_rerank.py / test_service_index_readiness.py
+  - 检索稳定性与低置信边界
+
+自测接口：
+- GET /self-test
+- 批量题集执行并输出 pass_rate 与 topic_scores
+
+==================================================
+十四、部署与运行
+==================================================
+Docker：
+1) docker compose up -d --build
+2) 访问
+   - /app
+   - /admin
+
+容器镜像：
+- 基于 python:3.10-slim-bookworm
+- 安装 tesseract-ocr + chi_sim
+- 启动命令 uvicorn airport_rag.api:app
+
+==================================================
+十五、常见问题与排障
+==================================================
+1) 问答一直低置信/无引用
+- 检查 data/documents 是否有内容
+- 调用 /ingest/default
+- 检查 data/chroma 是否可写
+
+2) 实时航班字段仍英文
+- 检查 data/documents/airport/实时航班/航班字段 是否存在且格式为 |字段名|信息映射|
+- 检查 /flight/field-mappings 返回
+- 检查 /flight/realtime 返回 realtime_flight_labels
+
+3) 二次确认按钮不出现
+- 仅“航班实时意图”问题才显示
+- 前端调用 /ask 默认 enable_realtime=false
+- 按钮点击后才调用 /flight/realtime
+
+4) embeddings 模型慢或加载失败
+- 可先用默认回退 hashing 保障可用性
+- 若需高质量向量，准备好本地缓存模型并启用下载策略
+
+5) chromadb 维度错误或查询不稳定
+- 已内置 collection 重建和 query fallback
+- 可清理 data/chroma 后重建索引
+
+==================================================
+十六、扩展建议（后续迭代）
+==================================================
+1) 实时航班字段映射热更新（管理端按钮）
+2) 未命中字段自动告警与补全建议
+3) /ask 增加 explain 模式（返回检索决策轨迹）
+4) 将补丁审核加入角色权限与审批流
+5) 自测结果长期落盘并做趋势报表
+
+==================================================
+附：关键实现文件索引
+==================================================
+- src/airport_rag/api.py
+- src/airport_rag/service.py
+- src/airport_rag/rules.py
+- src/airport_rag/realtime_flight.py
+- src/airport_rag/ingest.py
+- src/airport_rag/embeddings.py
+- src/airport_rag/vector_store.py
+- src/airport_rag/config.py
+- src/airport_rag/static/index.html
+- tests/test_realtime_flight_api.py
+
+（完）

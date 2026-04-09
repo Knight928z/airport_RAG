@@ -201,6 +201,55 @@ def test_filter_retrieved_prefers_departure_topic_for_departure_question() -> No
     assert filtered[0].chunk_id == "d"
 
 
+def test_filter_retrieved_excludes_realtime_archive_for_general_arrival_question() -> None:
+    items = [
+        RetrievedChunk(
+            chunk_id="rt-1",
+            text="航班 CZ325 到达时间 12:35，状态延误。",
+            source="/data/documents/airport/实时航班/2026-04-08-CZ325.md",
+            page=None,
+            distance=0.1,
+        ),
+        RetrievedChunk(
+            chunk_id="arr-1",
+            text="国际到达是指境外航班落地后旅客进入到达流程。",
+            source="/data/documents/airport/到达指南-国际到达",
+            page=None,
+            distance=0.2,
+        ),
+    ]
+
+    filtered = _filter_retrieved_by_relevance("国际到达是什么？", items)
+
+    assert filtered
+    assert all("/实时航班/" not in x.source.replace("\\", "/") for x in filtered)
+    assert filtered[0].chunk_id == "arr-1"
+
+
+def test_filter_retrieved_keeps_realtime_archive_for_realtime_flight_question() -> None:
+    items = [
+        RetrievedChunk(
+            chunk_id="rt-2",
+            text="MU2456 当前状态：延误 20 分钟。",
+            source="/data/documents/airport/实时航班/2026-04-08-MU2456.md",
+            page=None,
+            distance=0.1,
+        ),
+        RetrievedChunk(
+            chunk_id="arr-2",
+            text="国际到达流程请按指引前往到达层。",
+            source="/data/documents/airport/到达指南-国际到达",
+            page=None,
+            distance=0.2,
+        ),
+    ]
+
+    filtered = _filter_retrieved_by_relevance("MU2456现在延误了吗？", items)
+
+    assert filtered
+    assert any("/实时航班/" in x.source.replace("\\", "/") for x in filtered)
+
+
 def test_filter_retrieved_returns_empty_for_unsupported_battery_question() -> None:
     items = [
         RetrievedChunk(

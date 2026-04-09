@@ -591,8 +591,11 @@ def _filter_retrieved_by_relevance(
 
     q_topics = _infer_topics(question)
     expanded_question = _expand_question_with_topic_alias(question, q_topics)
+    allow_realtime_archive = _is_realtime_flight_query(question)
     filtered: list[RetrievedChunk] = []
     for item, score in scored:
+        if _is_realtime_archive_source(item.source) and not allow_realtime_archive:
+            continue
         if not _source_policy_compatible(source_policy, item):
             continue
         if not _intent_compatible(question, item.text, item.source):
@@ -610,6 +613,8 @@ def _filter_retrieved_by_relevance(
 
     compatible = []
     for item, _ in scored:
+        if _is_realtime_archive_source(item.source) and not allow_realtime_archive:
+            continue
         if not _source_policy_compatible(source_policy, item):
             continue
         if not _intent_compatible(question, item.text, item.source):
@@ -629,6 +634,19 @@ def _filter_retrieved_by_relevance(
     if q_topics:
         return []
     return [item for item, _ in scored[:1]]
+
+
+def _is_realtime_archive_source(source: str) -> bool:
+    normalized = (source or "").replace("\\", "/").lower()
+    return "/实时航班/" in normalized
+
+
+def _is_realtime_flight_query(question: str) -> bool:
+    q = (question or "").lower()
+    has_flight_no = bool(re.search(r"(?<![a-z0-9])[a-z]{2}\s*\d{3,4}(?![a-z0-9])", q))
+    has_realtime_hint = any(k in q for k in ["实时", "延误", "取消", "起飞", "落地", "航班状态", "flight status"])
+    has_flight_word = any(k in q for k in ["航班", "flight"])
+    return has_flight_no or (has_flight_word and has_realtime_hint)
 
 
 def _intent_compatible(question: str, text: str, source: str = "") -> bool:

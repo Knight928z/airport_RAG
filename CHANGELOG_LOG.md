@@ -2,6 +2,14 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-09 09:49:55 +0800
+
+- 提交：`fix(retrieval): avoid realtime-archive citations for generic arrival intent`
+- 变更文件：
+  - `src/airport_rag/service.py`
+  - `tests/test_service_rerank.py`
+- 备注：修复“国际到达是什么”误引用 `data/documents/airport/实时航班/*.md` 存档问题：仅当问题具备实时航班意图（明确航班号或“航班+实时状态”语义）时才允许实时航班存档参与检索；补充正反两类回归测试（通用到达问题排除实时存档、实时航班问题保留实时存档）。
+
 ## 2026-04-08 01:29:46 +0800
 
 - 提交：`refactor(eval): centralize tested question banks and harden customs fallback`
@@ -29,7 +37,7 @@
   - `src/airport_rag/eval_cases.py`
   - `src/airport_rag/rules.py`
   - `src/airport_rag/static/index.html`
-- 备注：补齐上一次与本次改动：前端反馈交互改为答后显示+点踩后单次纠错提交，实时字段映射改为前端传统内置表；修复锂电池/充电宝问答在无证据召回时的规则兜底（含mAh+电压换算），新增多条电池专项eval样例并完成回归验证。
+- 备注：前端反馈交互改为答后显示+点踩后单次纠错提交，实时字段映射改为前端传统内置表；修复锂电池/充电宝问答在无证据召回时的规则兜底（含mAh+电压换算），新增多条电池专项eval样例并完成回归验证。
 
 ## 2026-04-05 15:58:18 +0800
 

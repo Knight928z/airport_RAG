@@ -90,6 +90,18 @@ class ChromaStore:
     def count(self) -> int:
         return int(self._collection.count())
 
+    def get_chunks(self, limit: int = 200, offset: int = 0) -> dict:
+        safe_limit = max(1, int(limit))
+        safe_offset = max(0, int(offset))
+        return self._collection.get(
+            limit=safe_limit,
+            offset=safe_offset,
+            include=["documents", "metadatas"],
+        )
+
+    def reset_collection(self) -> None:
+        self._recreate_collection()
+
     def _is_dimension_mismatch(self, exc: Exception) -> bool:
         return "does not match collection dimensionality" in str(exc).lower()
 

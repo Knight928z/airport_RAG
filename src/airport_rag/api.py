@@ -6,6 +6,7 @@ import re
 import mimetypes
 from time import perf_counter
 from collections.abc import Iterable
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -538,6 +539,14 @@ def admin_ai_lab_home() -> FileResponse:
     return FileResponse(page_file)
 
 
+@app.get("/admin/vector-lab")
+def admin_vector_lab_home() -> FileResponse:
+    page_file = STATIC_DIR / "vector_lab.html"
+    if not page_file.exists():
+        raise HTTPException(status_code=404, detail="Vector lab page not found")
+    return FileResponse(page_file)
+
+
 class AdminClassifyRequest(BaseModel):
     filename: str = Field(min_length=1)
     content: str = ""
@@ -576,6 +585,16 @@ class LoRATrainRequest(BaseModel):
     lora_alpha: int = Field(default=16, ge=1, le=1024)
     lora_dropout: float = Field(default=0.05, ge=0.0, le=0.5)
     target_modules: Optional[List[str]] = None
+
+
+class VectorInspectRequest(BaseModel):
+    sample_limit: int = Field(default=5000, ge=100, le=50000)
+    top_duplicates: int = Field(default=10, ge=1, le=50)
+
+
+class VectorRebuildRequest(BaseModel):
+    input_path: str = Field(default="./data/documents")
+    reset_collection: bool = Field(default=True)
 
 
 def _normalize_text_key(text: str) -> str:
@@ -627,6 +646,136 @@ def _safe_lora_output_path(subdir: str) -> Path:
     if LORA_ROOT not in candidate.parents and candidate != LORA_ROOT:
         raise HTTPException(status_code=400, detail="invalid output_subdir")
     return candidate
+
+
+def _looks_like_garbled_text(text: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return False
+    printable = sum(1 for ch in t if ch.isprintable())
+    ratio = printable / max(1, len(t))
+    return ratio < 0.85
+
+
+def _iterate_vector_rows(sample_limit: int) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    total = service.store.count()
+    if total <= 0:
+        return rows
+
+    cap = min(total, sample_limit)
+    step = 500
+    offset = 0
+    while offset < cap:
+        batch = min(step, cap - offset)
+        chunk = service.store.get_chunks(limit=batch, offset=offset)
+        ids = chunk.get("ids") or []
+        docs = chunk.get("documents") or []
+        metas = chunk.get("metadatas") or []
+        for cid, doc, meta in zip(ids, docs, metas):
+            rows.append(
+                {
+                    "id": str(cid),
+                    "text": str(doc or ""),
+                    "meta": meta or {},
+                }
+            )
+        if not ids:
+            break
+        offset += len(ids)
+    return rows
+
+
+def _build_vector_inspection(sample_limit: int, top_duplicates: int) -> dict[str, Any]:
+    t0 = perf_counter()
+    total_count = service.store.count()
+    rows = _iterate_vector_rows(sample_limit=sample_limit)
+
+    source_counter: Counter[str] = Counter()
+    scope_counter: Counter[str] = Counter()
+    text_hash_counter: Counter[str] = Counter()
+
+    missing_source = 0
+    unknown_scope = 0
+    short_text = 0
+    garbled_text = 0
+
+    for row in rows:
+        text = row["text"].strip()
+        meta = row["meta"]
+        source = str(meta.get("source") or "").strip()
+        scope = str(meta.get("doc_scope") or "unknown").strip().lower()
+
+        if not source:
+            missing_source += 1
+        else:
+            source_counter[source] += 1
+
+        if scope in {"", "unknown", "none", "null"}:
+            unknown_scope += 1
+            scope_counter["unknown"] += 1
+        else:
+            scope_counter[scope] += 1
+
+        if len(text) < 20:
+            short_text += 1
+        if _looks_like_garbled_text(text):
+            garbled_text += 1
+
+        if text:
+            text_hash_counter[hashlib.sha1(text.encode("utf-8", errors="ignore")).hexdigest()] += 1
+
+    duplicate_groups = [cnt for cnt in text_hash_counter.values() if cnt > 1]
+    duplicate_group_count = len(duplicate_groups)
+    duplicate_chunk_count = sum(duplicate_groups)
+
+    top_sources = [
+        {"source": src, "count": cnt}
+        for src, cnt in source_counter.most_common(10)
+    ]
+
+    top_dup_entries = [
+        {"hash": h, "count": cnt}
+        for h, cnt in text_hash_counter.most_common(top_duplicates)
+        if cnt > 1
+    ]
+
+    sample_size = len(rows)
+    duplicate_ratio = round(duplicate_chunk_count / sample_size, 4) if sample_size else 0.0
+    short_text_ratio = round(short_text / sample_size, 4) if sample_size else 0.0
+    garbled_ratio = round(garbled_text / sample_size, 4) if sample_size else 0.0
+
+    risk_level = "low"
+    if duplicate_ratio >= 0.2 or short_text_ratio >= 0.2 or garbled_ratio >= 0.05:
+        risk_level = "high"
+    elif duplicate_ratio >= 0.08 or short_text_ratio >= 0.1 or garbled_ratio >= 0.02:
+        risk_level = "medium"
+
+    elapsed_ms = round((perf_counter() - t0) * 1000, 3)
+    return {
+        "total_vectors": total_count,
+        "sample_size": sample_size,
+        "sample_coverage": round(sample_size / total_count, 4) if total_count else 0.0,
+        "missing_source_count": missing_source,
+        "unknown_scope_count": unknown_scope,
+        "short_text_count": short_text,
+        "garbled_text_count": garbled_text,
+        "duplicate_group_count": duplicate_group_count,
+        "duplicate_chunk_count": duplicate_chunk_count,
+        "duplicate_ratio": duplicate_ratio,
+        "short_text_ratio": short_text_ratio,
+        "garbled_ratio": garbled_ratio,
+        "scope_distribution": dict(scope_counter),
+        "top_sources": top_sources,
+        "top_duplicate_hashes": top_dup_entries,
+        "risk_level": risk_level,
+        "elapsed_ms": elapsed_ms,
+        "recommendations": [
+            "若重复分片比例较高，建议先重建索引并核查原始文档是否重复上传。",
+            "若unknown_scope偏高，建议检查文档分类规则与metadata写入。",
+            "若短文本比例偏高，建议调整切分策略并过滤无意义碎片。",
+        ],
+    }
 
 
 def _migrate_legacy_patches_once() -> None:
@@ -1401,6 +1550,39 @@ def admin_get_ai_lab_options() -> dict:
             "base_model_options": LORA_BASE_MODEL_OPTIONS,
             "default_base_model": LORA_BASE_MODEL_OPTIONS[0],
         },
+    }
+
+
+@app.post("/admin/vector/inspect")
+def admin_vector_inspect(req: VectorInspectRequest) -> dict:
+    inspection = _build_vector_inspection(
+        sample_limit=req.sample_limit,
+        top_duplicates=req.top_duplicates,
+    )
+    return {
+        "status": "ok",
+        "inspection": inspection,
+    }
+
+
+@app.post("/admin/vector/rebuild")
+def admin_vector_rebuild(req: VectorRebuildRequest) -> dict:
+    before = service.store.count()
+    t0 = perf_counter()
+    if req.reset_collection:
+        service.store.reset_collection()
+    result = service.ingest(req.input_path)
+    after = service.store.count()
+    elapsed_ms = round((perf_counter() - t0) * 1000, 3)
+    return {
+        "status": "ok",
+        "before_count": before,
+        "after_count": after,
+        "reset_collection": req.reset_collection,
+        "input_path": req.input_path,
+        "indexed_chunks": result.indexed_chunks,
+        "processed_files": result.processed_files,
+        "elapsed_ms": elapsed_ms,
     }
 
 

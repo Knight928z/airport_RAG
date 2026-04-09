@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>向量库体检与优化</title>
+    <style>
+      :root { --bg:#f6f8fc; --card:#fff; --line:#dfe6f5; --text:#1f2a44; --muted:#66708a; --primary:#225cff; --warn:#f59e0b; --danger:#d94848; --ok:#1f8f4e; }
+      * { box-sizing:border-box; }
+      body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); }
+      .wrap { max-width:1160px; margin:0 auto; padding:20px; }
+      .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:12px; }
+      h1 { margin:0 0 8px; font-size:24px; }
+      h2 { margin:0 0 10px; font-size:16px; }
+      .muted { color:var(--muted); font-size:13px; }
+      .row { display:flex; gap:8px; flex-wrap:wrap; align-items:end; }
+      .row > div { min-width:180px; }
+      label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+      input, select { width:100%; border:1px solid var(--line); border-radius:8px; padding:9px 10px; font-size:14px; }
+      button { border:none; background:var(--primary); color:#fff; border-radius:8px; padding:8px 12px; cursor:pointer; }
+      button.secondary { background:#51607f; }
+      button.warn { background:var(--warn); }
+      .status { margin-top:8px; font-size:13px; }
+      .status.ok { color:var(--ok); }
+      .status.err { color:var(--danger); }
+      .grid { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; white-space: pre-wrap; }
+      .kv { border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+      .kv .item { display:grid; grid-template-columns: 220px 1fr; gap:8px; padding:8px 10px; border-top:1px solid var(--line); }
+      .kv .item:first-child { border-top:none; }
+      .tag { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; }
+      .tag.low { background:#e8f6ee; color:#1f8f4e; }
+      .tag.medium { background:#fff5e6; color:#b26a00; }
+      .tag.high { background:#fdecec; color:#c0392b; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>向量库体检与优化</h1>
+      <p class="muted">用于检查向量库是否存在“重复分片、短碎片、元数据缺失、疑似乱码”等污染迹象，并可一键重建索引。</p>
+      <p class="muted"><a href="/admin" style="color:#225cff;text-decoration:none;">返回管理后台 →</a></p>
+
+      <section class="card">
+        <h2>体检参数</h2>
+        <div class="row">
+          <div>
+            <label>sample_limit</label>
+            <input id="sample-limit" type="number" value="5000" min="100" max="50000" />
+          </div>
+          <div>
+            <label>top_duplicates</label>
+            <input id="top-duplicates" type="number" value="10" min="1" max="50" />
+          </div>
+          <div>
+            <button id="btn-inspect">开始体检</button>
+          </div>
+        </div>
+        <div id="inspect-status" class="status"></div>
+      </section>
+
+      <section class="card">
+        <h2>体检结果</h2>
+        <div id="risk-level" class="muted">风险等级：-</div>
+        <div id="core-kv" class="kv" style="margin-top:8px;"></div>
+        <div class="grid" style="margin-top:10px;">
+          <div>
+            <h2 style="font-size:14px;">source Top10</h2>
+            <div id="top-sources" class="mono" style="border:1px solid var(--line);border-radius:8px;padding:8px;min-height:160px;">-</div>
+          </div>
+          <div>
+            <h2 style="font-size:14px;">重复文本Top</h2>
+            <div id="top-dupes" class="mono" style="border:1px solid var(--line);border-radius:8px;padding:8px;min-height:160px;">-</div>
+          </div>
+        </div>
+        <h2 style="font-size:14px;margin-top:10px;">优化建议</h2>
+        <div id="recommendations" class="mono" style="border:1px solid var(--line);border-radius:8px;padding:8px;">-</div>
+      </section>
+
+      <section class="card">
+        <h2>一键优化（重建索引）</h2>
+        <div class="row">
+          <div style="min-width:360px;flex:1;">
+            <label>input_path</label>
+            <input id="rebuild-path" value="./data/documents" />
+          </div>
+          <div>
+            <label>reset_collection</label>
+            <select id="reset-collection">
+              <option value="true">true（推荐）</option>
+              <option value="false">false（仅增量重建）</option>
+            </select>
+          </div>
+          <div>
+            <button id="btn-rebuild" class="warn">执行重建优化</button>
+          </div>
+        </div>
+        <div id="rebuild-status" class="status"></div>
+        <div id="rebuild-result" class="mono" style="margin-top:8px;border:1px solid var(--line);border-radius:8px;padding:8px;min-height:64px;">-</div>
+      </section>
+    </div>
+
+    <script>
+      const inspectStatus = document.getElementById('inspect-status');
+      const rebuildStatus = document.getElementById('rebuild-status');
+
+      function setStatus(el, msg, ok=true) {
+        el.textContent = msg;
+        el.className = 'status ' + (ok ? 'ok' : 'err');
+      }
+
+      function fmtPct(v) {
+        return (Number(v || 0) * 100).toFixed(2) + '%';
+      }
+
+      function renderInspection(ins) {
+        const riskEl = document.getElementById('risk-level');
+        const risk = String(ins.risk_level || 'low');
+        riskEl.innerHTML = `风险等级：<span class="tag ${risk}">${risk.toUpperCase()}</span> ｜ 体检耗时 ${Number(ins.elapsed_ms || 0).toFixed(3)} ms`;
+
+        const core = [
+          ['total_vectors', ins.total_vectors],
+          ['sample_size', ins.sample_size],
+          ['sample_coverage', fmtPct(ins.sample_coverage)],
+          ['duplicate_group_count', ins.duplicate_group_count],
+          ['duplicate_chunk_count', ins.duplicate_chunk_count],
+          ['duplicate_ratio', fmtPct(ins.duplicate_ratio)],
+          ['short_text_count', ins.short_text_count],
+          ['short_text_ratio', fmtPct(ins.short_text_ratio)],
+          ['garbled_text_count', ins.garbled_text_count],
+          ['garbled_ratio', fmtPct(ins.garbled_ratio)],
+          ['missing_source_count', ins.missing_source_count],
+          ['unknown_scope_count', ins.unknown_scope_count],
+        ];
+
+        const kv = document.getElementById('core-kv');
+        kv.innerHTML = core.map(([k,v]) => `<div class="item"><div>${k}</div><div>${v}</div></div>`).join('');
+
+        const topSources = (ins.top_sources || []).map((x, i) => `${i+1}. ${x.source} | count=${x.count}`).join('\n');
+        document.getElementById('top-sources').textContent = topSources || '-';
+
+        const topDupes = (ins.top_duplicate_hashes || []).map((x, i) => `${i+1}. ${x.hash.slice(0,16)}... | count=${x.count}`).join('\n');
+        document.getElementById('top-dupes').textContent = topDupes || '-';
+
+        document.getElementById('recommendations').textContent = (ins.recommendations || []).map((x, i) => `${i+1}. ${x}`).join('\n') || '-';
+      }
+
+      async function inspect() {
+        const payload = {
+          sample_limit: Number(document.getElementById('sample-limit').value),
+          top_duplicates: Number(document.getElementById('top-duplicates').value),
+        };
+        const res = await fetch('/admin/vector/inspect', {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '体检失败');
+        renderInspection(data.inspection || {});
+        setStatus(inspectStatus, '向量库体检完成');
+      }
+
+      async function rebuild() {
+        const payload = {
+          input_path: document.getElementById('rebuild-path').value.trim(),
+          reset_collection: document.getElementById('reset-collection').value === 'true',
+        };
+        const res = await fetch('/admin/vector/rebuild', {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '重建失败');
+
+        document.getElementById('rebuild-result').textContent = [
+          `before_count: ${data.before_count}`,
+          `after_count: ${data.after_count}`,
+          `indexed_chunks: ${data.indexed_chunks}`,
+          `processed_files: ${data.processed_files}`,
+          `elapsed_ms: ${Number(data.elapsed_ms || 0).toFixed(3)}`,
+          `reset_collection: ${data.reset_collection}`,
+          `input_path: ${data.input_path}`,
+        ].join('\n');
+        setStatus(rebuildStatus, '向量库重建完成');
+      }
+
+      document.getElementById('btn-inspect').onclick = async () => {
+        try { await inspect(); } catch (e) { setStatus(inspectStatus, e.message, false); }
+      };
+
+      document.getElementById('btn-rebuild').onclick = async () => {
+        try { await rebuild(); } catch (e) { setStatus(rebuildStatus, e.message, false); }
+      };
+
+      (async () => {
+        try { await inspect(); } catch (e) { console.error(e); }
+      })();
+    </script>
+  </body>
+</html>

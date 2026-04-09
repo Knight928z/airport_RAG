@@ -2,6 +2,17 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-10 02:51:01 +0800
+
+- 提交：`feat(admin): add vector store inspection and optimization lab`
+- 变更文件：
+  - `src/airport_rag/api.py`
+  - `src/airport_rag/static/admin.html`
+  - `src/airport_rag/static/vector_lab.html`
+  - `src/airport_rag/vector_store.py`
+  - `tests/test_admin_vector_lab.py`
+- 备注：新增向量库体检与优化窗口（/admin/vector-lab），提供污染检测指标、重复分片统计、风险分级与一键重建索引；补充对应API与测试
+
 ## 2026-04-10 02:17:23 +0800
 
 - 提交：`feat(admin): add reranker observability metrics and ranking fidelity`

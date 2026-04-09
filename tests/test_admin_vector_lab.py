@@ -18,8 +18,8 @@ class _FakeStore:
     def get_chunks(self, limit: int = 200, offset: int = 0) -> dict:
         ids = ["a1", "a2", "a3", "a4", "a5", "a6"]
         docs = [
-            "国际到达流程请按指引前往到达层。",
-            "国际到达流程请按指引前往到达层。",
+            "国际到达流程请按指引前往到达层。record 2026-04-10T10:01:02",
+            "国际到达流程请按指引前往到达层。record 2026-04-10T11:05:06 id=abc123456",
             "短",
             "海关申报请走红色通道。",
             "海关申报请走红色通道。",
@@ -27,7 +27,7 @@ class _FakeStore:
         ]
         metas = [
             {"source": "/data/documents/airport/到达指南", "doc_scope": "airport"},
-            {"source": "/data/documents/airport/到达指南", "doc_scope": "airport"},
+            {"source": "/data/documents/airport/实时航班/2026-04-10-CZ1234.md", "doc_scope": "airport"},
             {"source": "", "doc_scope": "unknown"},
             {"source": "/data/documents/airport/海关须知", "doc_scope": "airport"},
             {"source": "/data/documents/airport/海关须知", "doc_scope": "airport"},
@@ -62,6 +62,11 @@ def test_admin_vector_inspect_returns_metrics(monkeypatch) -> None:
     assert ins["duplicate_group_count"] >= 1
     assert ins["duplicate_chunk_count"] >= 2
     assert ins["short_text_count"] >= 1
+    assert all("/实时航班/" not in row["source"] for row in ins["top_sources"])
+    assert ins["top_duplicate_hashes"]
+    preview = ins["top_duplicate_hashes"][0]["text_preview"]
+    assert "record" not in preview
+    assert "2026" not in preview
     assert "recommendations" in ins
 
 

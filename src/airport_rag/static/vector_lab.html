@@ -118,27 +118,27 @@
         riskEl.innerHTML = `风险等级：<span class="tag ${risk}">${risk.toUpperCase()}</span> ｜ 体检耗时 ${Number(ins.elapsed_ms || 0).toFixed(3)} ms`;
 
         const core = [
-          ['total_vectors', ins.total_vectors],
-          ['sample_size', ins.sample_size],
-          ['sample_coverage', fmtPct(ins.sample_coverage)],
-          ['duplicate_group_count', ins.duplicate_group_count],
-          ['duplicate_chunk_count', ins.duplicate_chunk_count],
-          ['duplicate_ratio', fmtPct(ins.duplicate_ratio)],
-          ['short_text_count', ins.short_text_count],
-          ['short_text_ratio', fmtPct(ins.short_text_ratio)],
-          ['garbled_text_count', ins.garbled_text_count],
-          ['garbled_ratio', fmtPct(ins.garbled_ratio)],
-          ['missing_source_count', ins.missing_source_count],
-          ['unknown_scope_count', ins.unknown_scope_count],
+          ['总向量数（total_vectors）', ins.total_vectors],
+          ['抽样条数（sample_size）', ins.sample_size],
+          ['抽样覆盖率（sample_coverage）', fmtPct(ins.sample_coverage)],
+          ['重复组数（duplicate_group_count）', ins.duplicate_group_count],
+          ['重复分片数（duplicate_chunk_count）', ins.duplicate_chunk_count],
+          ['重复占比（duplicate_ratio）', fmtPct(ins.duplicate_ratio)],
+          ['短文本数（short_text_count）', ins.short_text_count],
+          ['短文本占比（short_text_ratio）', fmtPct(ins.short_text_ratio)],
+          ['疑似乱码数（garbled_text_count）', ins.garbled_text_count],
+          ['疑似乱码占比（garbled_ratio）', fmtPct(ins.garbled_ratio)],
+          ['缺失来源数（missing_source_count）', ins.missing_source_count],
+          ['未知范围数（unknown_scope_count）', ins.unknown_scope_count],
         ];
 
         const kv = document.getElementById('core-kv');
         kv.innerHTML = core.map(([k,v]) => `<div class="item"><div>${k}</div><div>${v}</div></div>`).join('');
 
-        const topSources = (ins.top_sources || []).map((x, i) => `${i+1}. ${x.source} | count=${x.count}`).join('\n');
+  const topSources = (ins.top_sources || []).map((x, i) => `${i+1}. ${x.source} | 次数=${x.count}`).join('\n');
         document.getElementById('top-sources').textContent = topSources || '-';
 
-        const topDupes = (ins.top_duplicate_hashes || []).map((x, i) => `${i+1}. ${x.hash.slice(0,16)}... | count=${x.count}`).join('\n');
+  const topDupes = (ins.top_duplicate_hashes || []).map((x, i) => `${i+1}. 次数=${x.count} | 文本片段=${x.text_preview || '-'} | hash=${(x.hash || '').slice(0,10)}...`).join('\n');
         document.getElementById('top-dupes').textContent = topDupes || '-';
 
         document.getElementById('recommendations').textContent = (ins.recommendations || []).map((x, i) => `${i+1}. ${x}`).join('\n') || '-';

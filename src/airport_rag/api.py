@@ -657,6 +657,27 @@ def _looks_like_garbled_text(text: str) -> bool:
     return ratio < 0.85
 
 
+def _is_realtime_source(source: str) -> bool:
+    return "/实时航班/" in (source or "").replace("\\", "/").lower()
+
+
+def _normalize_for_duplicate_detection(text: str) -> str:
+    t = (text or "").lower()
+    # ISO-like timestamp and common datetime formats
+    t = re.sub(r"\b\d{4}[-/]\d{1,2}[-/]\d{1,2}[ t]\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:z|[+-]\d{2}:?\d{2})?\b", " ", t)
+    t = re.sub(r"\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b", " ", t)
+    t = re.sub(r"\b\d{1,2}:\d{2}(?::\d{2})?\b", " ", t)
+    # UUID / long hash / mixed ID markers
+    t = re.sub(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", " ", t)
+    t = re.sub(r"\b(?:id|record|job|answer|feedback)[_:\-\s]*[a-z0-9\-]{6,}\b", " ", t)
+    t = re.sub(r"\b[a-z]{1,4}\d{4,}\b", " ", t)
+    t = re.sub(r"\b\d{6,}\b", " ", t)
+    # keep Chinese/english/number core text only
+    t = re.sub(r"[^\u4e00-\u9fffa-z0-9\s]", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
 def _iterate_vector_rows(sample_limit: int) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     total = service.store.count()
@@ -694,6 +715,7 @@ def _build_vector_inspection(sample_limit: int, top_duplicates: int) -> dict[str
     source_counter: Counter[str] = Counter()
     scope_counter: Counter[str] = Counter()
     text_hash_counter: Counter[str] = Counter()
+    text_preview_by_hash: dict[str, str] = {}
 
     missing_source = 0
     unknown_scope = 0
@@ -708,7 +730,7 @@ def _build_vector_inspection(sample_limit: int, top_duplicates: int) -> dict[str
 
         if not source:
             missing_source += 1
-        else:
+        elif not _is_realtime_source(source):
             source_counter[source] += 1
 
         if scope in {"", "unknown", "none", "null"}:
@@ -722,8 +744,12 @@ def _build_vector_inspection(sample_limit: int, top_duplicates: int) -> dict[str
         if _looks_like_garbled_text(text):
             garbled_text += 1
 
-        if text:
-            text_hash_counter[hashlib.sha1(text.encode("utf-8", errors="ignore")).hexdigest()] += 1
+        normalized_text = _normalize_for_duplicate_detection(text)
+        if normalized_text:
+            h = hashlib.sha1(normalized_text.encode("utf-8", errors="ignore")).hexdigest()
+            text_hash_counter[h] += 1
+            if h not in text_preview_by_hash:
+                text_preview_by_hash[h] = normalized_text[:120]
 
     duplicate_groups = [cnt for cnt in text_hash_counter.values() if cnt > 1]
     duplicate_group_count = len(duplicate_groups)
@@ -735,7 +761,7 @@ def _build_vector_inspection(sample_limit: int, top_duplicates: int) -> dict[str
     ]
 
     top_dup_entries = [
-        {"hash": h, "count": cnt}
+        {"hash": h, "count": cnt, "text_preview": text_preview_by_hash.get(h, "")}
         for h, cnt in text_hash_counter.most_common(top_duplicates)
         if cnt > 1
     ]

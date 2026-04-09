@@ -2,6 +2,15 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-10 04:49:15 +0800
+
+- 提交：`feat(vector-lab): localize metrics labels and refine pollution filters`
+- 变更文件：
+  - `src/airport_rag/api.py`
+  - `src/airport_rag/static/vector_lab.html`
+  - `tests/test_admin_vector_lab.py`
+- 备注：向量库体检窗口指标改为中文名（中文名+字段名）；source Top10排除实时航班来源；重复文本Top改为去除ID/时间戳噪声后统计并展示文本片段，补充测试覆盖
+
 ## 2026-04-10 02:51:01 +0800
 
 - 提交：`feat(admin): add vector store inspection and optimization lab`

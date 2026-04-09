@@ -573,18 +573,16 @@ def _filter_retrieved_by_relevance(
 
     source_policy = _build_source_policy(question)
 
-    scored = sorted(
+    # Keep upstream order (already reranked) and only apply relevance gates.
+    # This avoids re-sorting by heuristic score and diluting reranker impact.
+    scored = [
         (
-            (
-                item,
-                _relevance_score(question, item.text)
-                + _source_preference_bonus(source_policy, item),
-            )
-            for item in retrieved
-        ),
-        key=lambda pair: pair[1],
-        reverse=True,
-    )
+            item,
+            _relevance_score(question, item.text)
+            + _source_preference_bonus(source_policy, item),
+        )
+        for item in retrieved
+    ]
 
     q_topics = _infer_topics(question)
     expanded_question = _expand_question_with_topic_alias(question, q_topics)
@@ -625,12 +623,7 @@ def _filter_retrieved_by_relevance(
     if compatible:
         return compatible[:1]
 
-    if not q_topics:
-        return []
-
-    if q_topics:
-        return []
-    return [item for item, _ in scored[:1]]
+    return []
 
 
 def _is_realtime_archive_source(source: str) -> bool:

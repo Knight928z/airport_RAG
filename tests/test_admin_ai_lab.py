@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -26,6 +27,48 @@ def test_admin_reranker_preview_returns_ranked_scores() -> None:
     assert "results" in body
     assert len(body["results"]) == 2
     assert body["results"][0]["score"] >= body["results"][1]["score"]
+    assert "observability" in body
+    assert body["observability"]["candidate_count"] == 2
+    assert "elapsed_ms" in body["observability"]
+    assert "score_summary" in body["observability"]
+    assert "rank_changes_vs_heuristic" in body["observability"]
+    assert "max_rank_shift_vs_heuristic" in body["observability"]
+
+
+def test_admin_reranker_preview_observability_rank_drift(monkeypatch) -> None:
+    class _FakeRerankerProvider:
+        def __init__(self, backend: str, model_name: str) -> None:
+            self.backend = backend
+            self.model_name = model_name
+
+        def score_pairs(self, question: str, candidates: list[str]) -> list[float]:
+            if self.backend == "heuristic":
+                return [0.1, 0.9, 0.2]
+            return [0.9, 0.1, 0.2]
+
+    monkeypatch.setattr(api_module, "RerankerProvider", _FakeRerankerProvider)
+    monkeypatch.setattr(
+        api_module.service,
+        "reranker",
+        SimpleNamespace(score_pairs=lambda question, candidates: [0.9, 0.1, 0.2]),
+    )
+    monkeypatch.setattr(api_module.service.settings, "reranker_backend", "cross_encoder")
+    monkeypatch.setattr(api_module.service.settings, "reranker_model", "dummy-reranker")
+
+    client = TestClient(api_module.app)
+    resp = client.post(
+        "/admin/reranker/preview",
+        json={
+            "question": "测试排序",
+            "candidates": ["候选A", "候选B", "候选C"],
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert [r["text"] for r in body["results"]] == ["候选A", "候选C", "候选B"]
+    assert body["observability"]["rank_changes_vs_heuristic"] == 2
+    assert body["observability"]["max_rank_shift_vs_heuristic"] == 2
 
 
 def test_admin_lora_train_accepts_job_and_returns_job_id(tmp_path: Path, monkeypatch) -> None:

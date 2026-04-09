@@ -29,12 +29,13 @@
       .table .head, .table .row { display:grid; grid-template-columns: 80px 1fr; gap:8px; padding:8px 10px; }
       .table .head { background:#eef3ff; font-weight:600; }
       .table .row { border-top:1px solid var(--line); }
+      .table.rk-table .head, .table.rk-table .row { grid-template-columns: 54px 76px 100px 100px 1fr; }
     </style>
   </head>
   <body>
     <div class="wrap">
       <h1>AI 调优实验窗</h1>
-      <p class="muted">在一个页面里完成 reranker 调试与 LoRA 微调任务提交。<a href="/admin" style="color:#225cff;text-decoration:none;">返回后台</a></p>
+      <p class="muted">在此页面内可完成 reranker 调试与 LoRA 微调任务提交。<a href="/admin" style="color:#225cff;text-decoration:none;">返回后台</a></p>
 
       <div class="grid">
         <section class="card">
@@ -65,7 +66,8 @@
           <button id="rk-run" style="margin-top:8px;">执行重排预览</button>
 
           <div id="rk-status" class="status"></div>
-          <div id="rk-result" class="table" style="margin-top:8px;"></div>
+          <div id="rk-metrics" class="mono" style="margin-top:8px; border:1px solid var(--line); border-radius:8px; padding:8px; min-height:56px;">暂无观测数据</div>
+          <div id="rk-result" class="table rk-table" style="margin-top:8px;"></div>
         </section>
 
         <section class="card">
@@ -113,9 +115,10 @@
       const rkResult = document.getElementById('rk-result');
       const rkQuestion = document.getElementById('rk-question');
       const rkCands = document.getElementById('rk-cands');
-    const rkModelOptions = document.getElementById('rk-model-options');
-    const loraBaseOptions = document.getElementById('lora-base-options');
-    const loraBase = document.getElementById('lora-base');
+      const rkModelOptions = document.getElementById('rk-model-options');
+      const loraBaseOptions = document.getElementById('lora-base-options');
+      const loraBase = document.getElementById('lora-base');
+      const rkMetrics = document.getElementById('rk-metrics');
 
       function setStatus(el, text, ok=true) {
         el.textContent = text;
@@ -174,11 +177,24 @@
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || '预览失败');
 
-        rkResult.innerHTML = '<div class="head"><div>score</div><div>text</div></div>';
+        const obs = data.observability || {};
+        const summary = obs.score_summary || {};
+        rkMetrics.textContent = [
+          `backend: ${data.backend || '-'}`,
+          `model: ${data.model_name || '-'}`,
+          `elapsed_ms: ${Number(obs.elapsed_ms || 0).toFixed(3)}`,
+          `candidates: ${obs.candidate_count || 0}`,
+          `score[min/max/mean]: ${Number(summary.min || 0).toFixed(4)} / ${Number(summary.max || 0).toFixed(4)} / ${Number(summary.mean || 0).toFixed(4)}`,
+          `top_score_gap: ${Number(summary.top_score_gap || 0).toFixed(4)}`,
+          `rank_changes_vs_heuristic: ${obs.rank_changes_vs_heuristic || 0}`,
+          `max_rank_shift_vs_heuristic: ${obs.max_rank_shift_vs_heuristic || 0}`,
+        ].join('\n');
+
+        rkResult.innerHTML = '<div class="head"><div>rank</div><div>score</div><div>heuristic</div><div>shift</div><div>text</div></div>';
         (data.results || []).forEach(r => {
           const row = document.createElement('div');
           row.className = 'row';
-          row.innerHTML = `<div>${Number(r.score).toFixed(4)}</div><div>${r.text}</div>`;
+          row.innerHTML = `<div>${Number(r.rank || 0)}</div><div>${Number(r.score).toFixed(4)}</div><div>#${Number(r.heuristic_rank || 0)} / ${Number(r.heuristic_score || 0).toFixed(4)}</div><div>${Number(r.rank_shift_vs_heuristic || 0)}</div><div>${r.text}</div>`;
           rkResult.appendChild(row);
         });
         setStatus(rkStatus, `重排完成（${data.backend}）`);

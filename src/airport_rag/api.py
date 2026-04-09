@@ -4,6 +4,7 @@ import json
 import hashlib
 import re
 import mimetypes
+from time import perf_counter
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
@@ -1428,16 +1429,66 @@ def admin_preview_reranker(req: RerankerPreviewRequest) -> dict:
     if not candidates:
         raise HTTPException(status_code=400, detail="candidates is required")
 
+    t0 = perf_counter()
     scores = service.reranker.score_pairs(req.question, candidates)
-    ranked = sorted(
-        [{"text": c, "score": float(s)} for c, s in zip(candidates, scores)],
-        key=lambda x: x["score"],
-        reverse=True,
-    )
+    scored_rows = [
+        {"id": idx, "text": c, "score": float(s)}
+        for idx, (c, s) in enumerate(zip(candidates, scores), start=1)
+    ]
+    ranked = sorted(scored_rows, key=lambda x: x["score"], reverse=True)
+
+    baseline_provider = RerankerProvider(backend="heuristic", model_name=service.settings.reranker_model)
+    heuristic_scores = baseline_provider.score_pairs(req.question, candidates)
+    heuristic_rows = [
+        {"id": idx, "text": c, "score": float(s)}
+        for idx, (c, s) in enumerate(zip(candidates, heuristic_scores), start=1)
+    ]
+    heuristic_ranked = sorted(heuristic_rows, key=lambda x: x["score"], reverse=True)
+
+    rank_pos = {row["id"]: i for i, row in enumerate(ranked, start=1)}
+    heuristic_rank_pos = {row["id"]: i for i, row in enumerate(heuristic_ranked, start=1)}
+
+    rows_with_debug: list[dict[str, Any]] = []
+    for row in ranked:
+        rid = row["id"]
+        rk = rank_pos.get(rid, 0)
+        hrk = heuristic_rank_pos.get(rid, 0)
+        rows_with_debug.append(
+            {
+                "rank": rk,
+                "heuristic_rank": hrk,
+                "rank_shift_vs_heuristic": hrk - rk,
+                "text": row["text"],
+                "score": row["score"],
+                "heuristic_score": next((x["score"] for x in heuristic_rows if x["id"] == rid), 0.0),
+            }
+        )
+
+    values = [float(s) for s in scores]
+    score_min = min(values) if values else 0.0
+    score_max = max(values) if values else 0.0
+    score_mean = (sum(values) / len(values)) if values else 0.0
+    top_score_gap = (rows_with_debug[0]["score"] - rows_with_debug[1]["score"]) if len(rows_with_debug) >= 2 else 0.0
+    changed_count = sum(1 for rid in rank_pos if rank_pos.get(rid) != heuristic_rank_pos.get(rid))
+    max_shift = max((abs(heuristic_rank_pos.get(rid, 0) - rank_pos.get(rid, 0)) for rid in rank_pos), default=0)
+
+    elapsed_ms = round((perf_counter() - t0) * 1000, 3)
     return {
         "backend": service.settings.reranker_backend,
         "model_name": service.settings.reranker_model,
-        "results": ranked,
+        "results": rows_with_debug,
+        "observability": {
+            "elapsed_ms": elapsed_ms,
+            "candidate_count": len(candidates),
+            "score_summary": {
+                "min": score_min,
+                "max": score_max,
+                "mean": score_mean,
+                "top_score_gap": top_score_gap,
+            },
+            "rank_changes_vs_heuristic": changed_count,
+            "max_rank_shift_vs_heuristic": max_shift,
+        },
     }
 
 

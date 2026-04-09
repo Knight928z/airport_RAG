@@ -169,6 +169,30 @@ def test_filter_retrieved_by_relevance_removes_unrelated() -> None:
     assert filtered[0].chunk_id == "a"
 
 
+def test_filter_retrieved_preserves_reranker_order_instead_of_resorting() -> None:
+    items = [
+        RetrievedChunk(
+            chunk_id="first",
+            text="国际到达流程请按指引前往到达层。",
+            source="doc-first",
+            page=None,
+            distance=0.2,
+        ),
+        RetrievedChunk(
+            chunk_id="second",
+            text="国际到达流程到达流程到达流程，请按流程办理。",
+            source="doc-second",
+            page=None,
+            distance=0.1,
+        ),
+    ]
+
+    filtered = _filter_retrieved_by_relevance("国际到达流程是什么", items, keep_top=2)
+
+    assert len(filtered) == 2
+    assert [x.chunk_id for x in filtered] == ["first", "second"]
+
+
 def test_intent_compatible_blocks_international_for_domestic_question() -> None:
     question = "国内出发需要提前多久到达？"
 

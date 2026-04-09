@@ -2,6 +2,18 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-10 02:17:23 +0800
+
+- 提交：`feat(admin): add reranker observability metrics and ranking fidelity`
+- 变更文件：
+  - `.gitignore`
+  - `src/airport_rag/api.py`
+  - `src/airport_rag/service.py`
+  - `src/airport_rag/static/ai_lab.html`
+  - `tests/test_admin_ai_lab.py`
+  - `tests/test_service_rerank.py`
+- 备注：管理端 AI Lab 新增 reranker 可观测指标（时延、分数摘要、与heuristic排序偏移）；预览结果展示rank/shift；同时修复问答链路中过滤阶段二次重排导致reranker效果被稀释的问题，并补充回归测试
+
 ## 2026-04-09 14:01:05 +0800
 
 - 提交：`feat(ai-lab): add model options and tuning guide`

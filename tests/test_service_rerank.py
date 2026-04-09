@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import airport_rag.service as service_module
 
 from airport_rag.service import (
     AirportRAGService,
@@ -1320,3 +1321,43 @@ def test_generate_answer_falls_back_to_factoid_when_grounding_empty() -> None:
     assert ans.note in {"grounded-factoid", "rule-based"}
     assert "提前2小时" in ans.answer
     assert "dep-raw-1" in (ans.evidence_chunk_ids or [])
+
+
+def test_generate_answer_uses_local_lora_when_specific_fact_required(monkeypatch) -> None:
+    svc = _service_for_generate_answer_tests()
+    svc.settings = SimpleNamespace(
+        openai_api_key=None,
+        generation_backend="local_lora",
+        lora_base_model="Qwen/Qwen2.5-0.5B-Instruct",
+        lora_adapter_path="/tmp/mock-adapter",
+        lora_max_new_tokens=128,
+    )
+    retrieved = [
+        RetrievedChunk(
+            chunk_id="ground-1",
+            text="海关现场排队时长受时段客流影响，需以现场显示为准。",
+            source="/data/documents/airport/海关检查须知",
+            page=None,
+            distance=0.1,
+        )
+    ]
+
+    monkeypatch.setattr(service_module, "_build_rule_based_answer", lambda question, chunks: None)
+    monkeypatch.setattr(service_module, "_build_factoid_answer", lambda question, chunks: None)
+    monkeypatch.setattr(service_module, "_requires_specific_fact", lambda question: True)
+    monkeypatch.setattr(
+        service_module,
+        "_select_grounded_evidence",
+        lambda question, chunks, keep_top=5: SimpleNamespace(evidence=chunks, reason="ok"),
+    )
+    monkeypatch.setattr(
+        service_module,
+        "_generate_with_local_lora",
+        lambda question, grounded, settings: "结论：需以现场排队显示为准。\n依据：已结合检索证据。",
+    )
+
+    ans = svc._generate_answer("海关人工通道平均排队多久？", retrieved, raw_retrieved=retrieved)
+
+    assert ans.note == "local-lora-generated"
+    assert "需以现场排队显示为准" in ans.answer
+    assert "ground-1" in (ans.evidence_chunk_ids or [])

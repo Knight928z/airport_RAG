@@ -182,6 +182,35 @@ AI 调优实验窗 API：
 - 先选单一高频主题（如“海关申报”或“行李托运”）做一轮小样本验证；
 - 单主题验证通过后，再扩展到多主题联合训练，避免一次性范围过大导致定位困难。
 
+### LoRA 微调结果如何融合到问答推理链路
+
+项目已支持将训练好的 LoRA adapter 接入 `service` 推理阶段（需配置环境变量）。
+
+推理优先级为：
+
+1. 规则/事实类回答（最高优先，避免越权生成）
+1. 检索抽取式回答（基于证据片段直接作答）
+1. LoRA / OpenAI 生成（仅在“需要特定事实”且已有证据时尝试）
+1. 低置信拒答（证据不足时）
+
+新增环境变量：
+
+- `RAG_GEN_BACKEND`：`auto`（默认）/`local_lora`/`openai`/`disabled`
+- `RAG_LORA_BASE_MODEL`：LoRA 对应基础模型（如 `Qwen/Qwen2.5-0.5B-Instruct`）
+- `RAG_LORA_ADAPTER_PATH`：LoRA 输出目录（如 `/app/data/lora/airport-lora/customs-declare-20260410`）
+- `RAG_LORA_MAX_NEW_TOKENS`：LoRA 生成最大 token 数（默认 `256`）
+
+Docker 示例（容器内）：
+
+```bash
+RAG_GEN_BACKEND=local_lora
+RAG_LORA_BASE_MODEL=Qwen/Qwen2.5-0.5B-Instruct
+RAG_LORA_ADAPTER_PATH=/app/data/lora/airport-lora/customs-declare-20260410
+RAG_LORA_MAX_NEW_TOKENS=256
+```
+
+> 若 LoRA 未配置或加载失败，`auto` 模式会自动回退到 OpenAI（若已配置 `OPENAI_API_KEY`），再回退到抽取式回答。
+
 调优参数建议（起步值）：
 
 - LoRA：`epochs=1~2`、`batch_size=2~8`、`learning_rate=1e-4~3e-4`

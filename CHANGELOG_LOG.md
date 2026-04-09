@@ -2,6 +2,16 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-10 05:55:15 +0800
+
+- 提交：`feat(inference): integrate local lora generation into rag answer chain`
+- 变更文件：
+  - `README.md`
+  - `src/airport_rag/config.py`
+  - `src/airport_rag/service.py`
+  - `tests/test_service_rerank.py`
+- 备注：融合 LoRA 推理链路：新增生成后端配置（auto/local_lora/openai/disabled）与 LoRA 运行参数；在问答主链路按优先级执行规则/抽取/LoRA/低置信；补充 local-lora-generated 回归测试并更新 README 融合说明。
+
 ## 2026-04-10 05:43:32 +0800
 
 - 提交：`docs(ui): simplify ai-lab onboarding for reranker and lora`

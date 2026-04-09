@@ -19,6 +19,10 @@ if _private_env_path:
 class Settings:
     openai_api_key: str | None = os.getenv("OPENAI_API_KEY")
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    generation_backend: str = os.getenv("RAG_GEN_BACKEND", "auto")
+    lora_base_model: str = os.getenv("RAG_LORA_BASE_MODEL", "")
+    lora_adapter_path: str = os.getenv("RAG_LORA_ADAPTER_PATH", "")
+    lora_max_new_tokens: int = int(os.getenv("RAG_LORA_MAX_NEW_TOKENS", "256"))
     embedding_backend: str = os.getenv("RAG_EMBEDDING_BACKEND", "sentence_transformers")
     embedding_model: str = os.getenv("RAG_EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")
     reranker_backend: str = os.getenv("RAG_RERANKER_BACKEND", "cross_encoder")

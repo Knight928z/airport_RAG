@@ -5,6 +5,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 from dataclasses import dataclass
+from typing import Any
 
 from .config import Settings, get_settings
 from .embeddings import EmbeddingProvider
@@ -267,6 +268,20 @@ class AirportRAGService:
         if factoid is not None:
             return factoid
 
+        extractive_bundle = _build_retrieval_extractive_answer(grounded)
+
+        # Priority chain:
+        # 1) deterministic rule/fact answers
+        # 2) retrieval extractive answer
+        # 3) LoRA/OpenAI generation on top of grounded evidence (optional)
+        # 4) low-confidence refusal when specific fact cannot be safely grounded
+        if not _requires_specific_fact(question):
+            return extractive_bundle
+
+        generated = _maybe_generate_with_backends(question, grounded, self.settings)
+        if generated is not None:
+            return generated
+
         if _requires_specific_fact(question):
             return _AnswerBundle(
                 answer=(
@@ -278,57 +293,152 @@ class AirportRAGService:
                 note="low-confidence",
             )
 
-        if self.settings.openai_api_key:
-            try:
-                from langchain_core.output_parsers import StrOutputParser
-                from langchain_core.prompts import ChatPromptTemplate
-                from langchain_openai import ChatOpenAI
+        return extractive_bundle
 
-                evidences = [{"source": r.source, "page": r.page, "text": r.text} for r in grounded]
-                user_prompt = build_user_prompt(question, evidences)
 
-                prompt = ChatPromptTemplate.from_messages(
-                    [
-                        ("system", SYSTEM_STYLE),
-                        ("user", "{user_prompt}"),
-                    ]
-                )
+def _build_retrieval_extractive_answer(grounded: list[RetrievedChunk]) -> _AnswerBundle:
+    lines = [
+        "结论：根据已检索证据，建议按文档要求执行对应机场业务流程。",
+        "依据：",
+    ]
+    for idx, item in enumerate(grounded[:3], start=1):
+        lines.append(
+            f"- [{idx}] {item.text[:120]}（来源：{item.source}，页码：{item.page}）"
+        )
 
-                model = ChatOpenAI(
-                    model=self.settings.openai_model,
-                    api_key=self.settings.openai_api_key,
-                    temperature=0.1,
-                )
-                chain = prompt | model | StrOutputParser()
-                content = chain.invoke({"user_prompt": user_prompt})
+    lines.extend(
+        [
+            "执行建议：由运行指挥/现场责任岗对照原文逐条核验后执行，关键环节保留审计记录。",
+            "风险提示：当前回答基于检索片段自动生成，若涉及安全红线或航班正常性，请人工复核。",
+        ]
+    )
+    return _AnswerBundle(
+        answer="\n".join(lines),
+        note="retrieval-extractive",
+        evidence_chunk_ids=[r.chunk_id for r in grounded[:3]],
+    )
+
+
+def _maybe_generate_with_backends(
+    question: str,
+    grounded: list[RetrievedChunk],
+    settings: Settings,
+) -> _AnswerBundle | None:
+    backend = str(getattr(settings, "generation_backend", "auto") or "auto").lower().strip()
+    if backend in {"off", "none", "disabled"}:
+        return None
+
+    order: list[str]
+    if backend == "local_lora":
+        order = ["local_lora"]
+    elif backend == "openai":
+        order = ["openai"]
+    else:
+        # auto mode: prefer LoRA when adapter path is configured, then OpenAI fallback
+        order = ["local_lora", "openai"]
+
+    for target in order:
+        if target == "local_lora":
+            out = _generate_with_local_lora(question, grounded, settings)
+            if out:
                 return _AnswerBundle(
-                    answer=content,
+                    answer=out,
+                    note="local-lora-generated",
+                    evidence_chunk_ids=[r.chunk_id for r in grounded[:3]],
+                )
+        elif target == "openai":
+            out = _generate_with_openai(question, grounded, settings)
+            if out:
+                return _AnswerBundle(
+                    answer=out,
                     note="model-generated",
                     evidence_chunk_ids=[r.chunk_id for r in grounded[:3]],
                 )
-            except Exception:
-                pass
+    return None
 
-        lines = [
-            "结论：根据已检索证据，建议按文档要求执行对应机场业务流程。",
-            "依据：",
-        ]
-        for idx, item in enumerate(grounded[:3], start=1):
-            lines.append(
-                f"- [{idx}] {item.text[:120]}（来源：{item.source}，页码：{item.page}）"
-            )
 
-        lines.extend(
+def _generate_with_openai(question: str, grounded: list[RetrievedChunk], settings: Settings) -> str | None:
+    if not getattr(settings, "openai_api_key", None):
+        return None
+    try:
+        from langchain_core.output_parsers import StrOutputParser
+        from langchain_core.prompts import ChatPromptTemplate
+        from langchain_openai import ChatOpenAI
+
+        evidences = [{"source": r.source, "page": r.page, "text": r.text} for r in grounded]
+        user_prompt = build_user_prompt(question, evidences)
+
+        prompt = ChatPromptTemplate.from_messages(
             [
-                "执行建议：由运行指挥/现场责任岗对照原文逐条核验后执行，关键环节保留审计记录。",
-                "风险提示：当前回答基于检索片段自动生成，若涉及安全红线或航班正常性，请人工复核。",
+                ("system", SYSTEM_STYLE),
+                ("user", "{user_prompt}"),
             ]
         )
-        return _AnswerBundle(
-            answer="\n".join(lines),
-            note="retrieval-extractive",
-            evidence_chunk_ids=[r.chunk_id for r in grounded[:3]],
+
+        model = ChatOpenAI(
+            model=settings.openai_model,
+            api_key=settings.openai_api_key,
+            temperature=0.1,
         )
+        chain = prompt | model | StrOutputParser()
+        return chain.invoke({"user_prompt": user_prompt})
+    except Exception:
+        return None
+
+
+def _generate_with_local_lora(question: str, grounded: list[RetrievedChunk], settings: Settings) -> str | None:
+    adapter_path = str(getattr(settings, "lora_adapter_path", "") or "").strip()
+    base_model = str(getattr(settings, "lora_base_model", "") or "").strip()
+    if not adapter_path or not base_model:
+        return None
+
+    adapter = Path(adapter_path)
+    if not adapter.exists():
+        return None
+
+    try:
+        import torch
+
+        model, tokenizer = _load_local_lora_model(base_model, str(adapter.resolve()))
+        evidences = [{"source": r.source, "page": r.page, "text": r.text} for r in grounded]
+        user_prompt = build_user_prompt(question, evidences)
+        prompt = f"{SYSTEM_STYLE}\n\n{user_prompt}\n\n请严格按“结论/依据/执行建议/风险提示”四段输出。"
+
+        max_input_len = 2048
+        encoded = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=max_input_len)
+        input_ids = encoded["input_ids"]
+        attention_mask = encoded.get("attention_mask")
+
+        with torch.no_grad():
+            generated = model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                max_new_tokens=int(getattr(settings, "lora_max_new_tokens", 256) or 256),
+                do_sample=False,
+                eos_token_id=tokenizer.eos_token_id,
+                pad_token_id=tokenizer.eos_token_id,
+            )
+
+        gen_ids = generated[0][input_ids.shape[1] :]
+        out = tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
+        return out or None
+    except Exception:
+        return None
+
+
+@lru_cache(maxsize=2)
+def _load_local_lora_model(base_model: str, adapter_path: str) -> tuple[Any, Any]:
+    from peft import PeftModel
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(base_model)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    base = AutoModelForCausalLM.from_pretrained(base_model)
+    model = PeftModel.from_pretrained(base, adapter_path)
+    model.eval()
+    return model, tokenizer
 
 
 def _pad_citations_to_top_k(primary: list[Citation], fallback: list[Citation], top_k: int) -> list[Citation]:

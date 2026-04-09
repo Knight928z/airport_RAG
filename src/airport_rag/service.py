@@ -953,13 +953,17 @@ def _source_scope_and_carrier(item: RetrievedChunk) -> tuple[str, str]:
 def _build_source_policy(question: str) -> _SourcePolicy:
     q = question.lower()
     is_compare = any(k in q for k in SOURCE_POLICY_COMPARE_KEYWORDS)
+    is_battery_intent = any(k in q for k in BATTERY_AIRPORT_KEYWORDS)
+
+    # Battery intent should stay KB-driven and may require both airport baseline
+    # and carrier-specific clauses. Do not hard-limit retrieval scope here.
+    if is_battery_intent:
+        return _SourcePolicy(preferred_scope="airport")
 
     code = _resolve_carrier_code_from_question(question)
     if code:
         return _SourcePolicy(required_scope="airline", required_carrier=code, preferred_scope="airline")
 
-    if any(k in q for k in BATTERY_AIRPORT_KEYWORDS):
-        return _SourcePolicy(required_scope="airport", preferred_scope="airport")
     if any(k in q for k in DEPARTURE_AIRPORT_KEYWORDS) and any(k in q for k in ["提前", "多久", "几小时", "什么时候", "几点"]):
         return _SourcePolicy(required_scope="airport", preferred_scope="airport")
 

@@ -2,6 +2,15 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-10 05:09:35 +0800
+
+- 提交：`refactor(rag): make battery answers kb-grounded with dual-source citations`
+- 变更文件：
+  - `src/airport_rag/rules.py`
+  - `src/airport_rag/service.py`
+  - `tests/test_service_rerank.py`
+- 备注：重做充电宝问答链路：电池问题不再硬限制单一scope检索，允许机场+航司证据共同参与；电池回答改为证据驱动并在命中航司语义时输出机场规则+航司规则双引用，新增春秋航空场景回归测试。
+
 ## 2026-04-10 05:02:12 +0800
 
 - 提交：`fix(citations): prevent uncited battery answers without evidence`

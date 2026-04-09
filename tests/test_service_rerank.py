@@ -93,7 +93,8 @@ def test_source_policy_routes_airline_only_question() -> None:
 
 def test_source_policy_routes_battery_question_to_airport() -> None:
     p = _build_source_policy("我的充电宝150Wh能带吗？")
-    assert p.required_scope == "airport"
+    assert p.required_scope is None
+    assert p.preferred_scope == "airport"
 
 
 def test_source_policy_routes_departure_time_question_to_airport() -> None:
@@ -669,6 +670,38 @@ def test_rule_based_answer_for_checked_lithium_battery() -> None:
 
     assert ans is not None
     assert "不能托运" in ans.answer or "禁止作为行李托运" in ans.answer
+
+
+def test_rule_based_battery_answer_combines_airport_and_airline_evidence_for_9c() -> None:
+    retrieved = [
+        RetrievedChunk(
+            chunk_id="ap-battery-1",
+            text="充电宝、锂电池禁止作为行李托运，随身携带时有以下限定条件。",
+            source="/data/documents/airport/民航旅客限制随身携带或托运物品目录",
+            page=None,
+            distance=0.1,
+            doc_scope="airport",
+            carrier="",
+        ),
+        RetrievedChunk(
+            chunk_id="9c-battery-1",
+            text="经航空公司批准，每位旅客最多可携带2块额定能量大于100Wh但不超过160Wh的备用锂电池乘机。严禁携带额定能量超过160Wh的锂电池。",
+            source="/data/documents/9C/春秋航空锂电池规定.png.ocr.md",
+            page=None,
+            distance=0.2,
+            doc_scope="airline",
+            carrier="9C",
+        ),
+    ]
+
+    ans = _build_rule_based_answer("春秋航空120Wh充电宝可以带吗？", retrieved)
+
+    assert ans is not None
+    assert "[机场规则]" in ans.answer
+    assert "[航司规则]" in ans.answer
+    assert "民航旅客限制随身携带或托运物品目录" in ans.answer
+    assert "春秋航空锂电池规定" in ans.answer
+    assert set(ans.evidence_chunk_ids or []) == {"ap-battery-1", "9c-battery-1"}
 
 
 def test_rule_based_answer_for_infant_ticket_age_question() -> None:

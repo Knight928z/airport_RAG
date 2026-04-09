@@ -1154,6 +1154,8 @@ def _build_battery_answer(question: str, retrieved: list[RetrievedChunk]) -> Rul
         ]
         return RuleResult(answer="\n".join(lines), note="low-confidence", evidence_chunk_ids=[])
 
+    asks_specific_carrier = _battery_question_mentions_specific_carrier(question)
+
     def _battery_item_score(item: RetrievedChunk) -> tuple[int, float]:
         joined = f"{item.source} {item.text}".lower()
         score = 0
@@ -1171,11 +1173,32 @@ def _build_battery_answer(question: str, retrieved: list[RetrievedChunk]) -> Rul
             score += 6
         if "禁止作为行李托运" in joined:
             score += 2
+        if asks_specific_carrier and _battery_source_scope(item) == "airline":
+            score += 4
         if "/airport/" in item.source.replace("\\", "/"):
             score += 1
         return score, -item.distance
 
     evidence = sorted(evidence, key=_battery_item_score, reverse=True)
+
+    airport_item = next((item for item in evidence if _battery_source_scope(item) == "airport"), None)
+    airline_item = next((item for item in evidence if _battery_source_scope(item) == "airline"), None)
+
+    selected_evidence: list[RetrievedChunk] = []
+    if asks_specific_carrier and airport_item is not None and airline_item is not None:
+        selected_evidence = [airport_item, airline_item]
+    else:
+        seen: set[str] = set()
+        for item in evidence:
+            if item.chunk_id in seen:
+                continue
+            selected_evidence.append(item)
+            seen.add(item.chunk_id)
+            if len(selected_evidence) >= 2:
+                break
+
+    if not selected_evidence:
+        selected_evidence = evidence[:2]
 
     text_all = "\n".join(r.text.lower() for r in evidence[:8])
 
@@ -1246,16 +1269,64 @@ def _build_battery_answer(question: str, retrieved: list[RetrievedChunk]) -> Rul
         f"结论：针对{subject}，{conclusion}",
         "依据：",
     ]
-    for idx, item in enumerate(evidence[:2], start=1):
+    for idx, item in enumerate(selected_evidence, start=1):
         span = _extract_battery_evidence_span(item.text)
-        lines.append(f"- [{idx}] {span}（来源：{item.source}）")
+        scope = _battery_source_scope(item)
+        label = "机场规则" if scope == "airport" else "航司规则" if scope == "airline" else "规则条款"
+        lines.append(f"- [{idx}] [{label}] {span}（来源：{item.source}）")
+
+    if asks_specific_carrier and airport_item is not None and airline_item is not None:
+        lines.append("说明：以上结论已同时结合机场通用条款与航司条款进行交叉核验。")
+
     lines.extend(
         [
             "执行建议：以航空公司及安检现场最新规定为准，必要时提前向航司确认。",
             "风险提示：不同航司/机型及临时管控可能存在差异，需人工复核。",
         ]
     )
-    return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[item.chunk_id for item in evidence[:2]])
+    return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[item.chunk_id for item in selected_evidence])
+
+
+def _battery_source_scope(item: RetrievedChunk) -> str:
+    if item.doc_scope == "airport":
+        return "airport"
+    if item.doc_scope == "airline":
+        return "airline"
+
+    source = (item.source or "").replace("\\", "/").lower()
+    if "/documents/airport/" in source:
+        return "airport"
+    if re.search(r"/documents/[a-z0-9]{2}/", source):
+        return "airline"
+    return "unknown"
+
+
+def _battery_question_mentions_specific_carrier(question: str) -> bool:
+    q = (question or "").lower()
+    aliases = [
+        "南航",
+        "东航",
+        "国航",
+        "春秋",
+        "海航",
+        "厦航",
+        "深航",
+        "吉祥",
+        "山航",
+        "阿联酋",
+        "emirates",
+        "spring airlines",
+        "china southern",
+        "china eastern",
+        "air china",
+    ]
+    if any(alias in q for alias in aliases):
+        return True
+
+    m = re.search(r"(?<![a-z0-9])([a-z0-9]{2})(?![a-z0-9])", q)
+    if not m:
+        return False
+    return m.group(1).upper() != "WH"
 
 
 def _extract_battery_evidence_span(text: str, max_chars: int = 160) -> str:

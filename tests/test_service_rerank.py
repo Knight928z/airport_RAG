@@ -466,6 +466,51 @@ def test_ask_battery_question_without_evidence_returns_low_confidence_without_ci
     assert "未检索到可直接回答该问题的充电宝业务证据" in resp.answer
 
 
+def test_ask_top_k_changes_rule_based_battery_evidence_count() -> None:
+    chunks = [
+        RetrievedChunk(
+            chunk_id="ap-bat-1",
+            text="充电宝、锂电池禁止作为行李托运，随身携带时有以下限定条件。",
+            source="/data/documents/airport/民航旅客限制随身携带或托运物品目录",
+            page=None,
+            distance=0.1,
+            doc_scope="airport",
+            carrier="",
+        ),
+        RetrievedChunk(
+            chunk_id="9c-bat-1",
+            text="经航空公司批准，每位旅客最多可携带2块额定能量大于100Wh但不超过160Wh的备用锂电池乘机。",
+            source="/data/documents/9C/春秋航空锂电池规定.png.ocr.md",
+            page=None,
+            distance=0.2,
+            doc_scope="airline",
+            carrier="9C",
+        ),
+        RetrievedChunk(
+            chunk_id="9c-bat-2",
+            text="严禁携带额定能量超过160Wh的锂电池。",
+            source="/data/documents/9C/春秋航空锂电池规定.png.ocr.md",
+            page=None,
+            distance=0.3,
+            doc_scope="airline",
+            carrier="9C",
+        ),
+    ]
+    svc = _service_for_ask_tests(chunks)
+
+    resp_top1 = svc.ask("春秋航空120Wh充电宝可以带吗？", top_k=1)
+    resp_top3 = svc.ask("春秋航空120Wh充电宝可以带吗？", top_k=3)
+
+    assert resp_top1.confidence_note == "rule-based"
+    assert len(resp_top1.citations) == 1
+    assert "- [1]" in resp_top1.answer
+    assert "- [2]" not in resp_top1.answer
+
+    assert resp_top3.confidence_note == "rule-based"
+    assert len(resp_top3.citations) == 3
+    assert "- [3]" in resp_top3.answer
+
+
 def test_rule_based_answer_for_customs_hotline_is_low_confidence() -> None:
     retrieved = [
         RetrievedChunk(

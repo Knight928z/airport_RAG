@@ -144,6 +144,15 @@ class AirportRAGService:
             else:
                 citations = self._to_citations([r for r in raw_retrieved if r.chunk_id in wanted])
 
+        # Keep rule-based grounding explicit: preserve evidence-linked citations first,
+        # then pad with additional focused citations up to top_k so citation-count controls
+        # visibly affect the answer evidence section.
+        if answer_bundle.note == "rule-based" and citations:
+            citations = _pad_citations_to_top_k(citations, self._to_citations(focused), top_k)
+
+        citations = citations[:top_k]
+        answer_bundle.answer = _sync_answer_evidence_with_citations(answer_bundle.answer, citations)
+
         return AskResponse(
             question=question,
             answer=answer_bundle.answer,
@@ -320,6 +329,77 @@ class AirportRAGService:
             note="retrieval-extractive",
             evidence_chunk_ids=[r.chunk_id for r in grounded[:3]],
         )
+
+
+def _pad_citations_to_top_k(primary: list[Citation], fallback: list[Citation], top_k: int) -> list[Citation]:
+    if top_k <= 0:
+        return []
+    merged: list[Citation] = []
+    seen: set[str] = set()
+    for c in primary:
+        if c.chunk_id in seen:
+            continue
+        merged.append(c)
+        seen.add(c.chunk_id)
+        if len(merged) >= top_k:
+            break
+    if len(merged) >= top_k:
+        return _reindex_citations(merged)
+
+    for c in fallback:
+        if c.chunk_id in seen:
+            continue
+        merged.append(c)
+        seen.add(c.chunk_id)
+        if len(merged) >= top_k:
+            break
+    return _reindex_citations(merged)
+
+
+def _reindex_citations(citations: list[Citation]) -> list[Citation]:
+    out: list[Citation] = []
+    for idx, c in enumerate(citations, start=1):
+        out.append(
+            Citation(
+                index=idx,
+                source=c.source,
+                page=c.page,
+                chunk_id=c.chunk_id,
+                snippet=c.snippet,
+            )
+        )
+    return out
+
+
+def _sync_answer_evidence_with_citations(answer: str, citations: list[Citation]) -> str:
+    if not answer or not citations:
+        return answer
+
+    lines = answer.splitlines()
+    evidence_headers = {"依据：", "Evidence:"}
+    evidence_start = next((i for i, line in enumerate(lines) if line.strip() in evidence_headers), None)
+    if evidence_start is None:
+        return answer
+
+    section_end_prefixes = ("执行建议：", "风险提示：", "Recommendation:", "Risk note:")
+    evidence_end = len(lines)
+    for i in range(evidence_start + 1, len(lines)):
+        if lines[i].strip().startswith(section_end_prefixes):
+            evidence_end = i
+            break
+
+    is_en = lines[evidence_start].strip() == "Evidence:"
+    evidence_lines: list[str] = []
+    for c in citations:
+        if is_en:
+            page_suffix = f", page: {c.page}" if c.page is not None else ""
+            evidence_lines.append(f"- [{c.index}] {c.snippet} (source: {c.source}{page_suffix})")
+        else:
+            page_suffix = f"，页码：{c.page}" if c.page is not None else ""
+            evidence_lines.append(f"- [{c.index}] {c.snippet}（来源：{c.source}{page_suffix}）")
+
+    updated = lines[: evidence_start + 1] + evidence_lines + lines[evidence_end:]
+    return "\n".join(updated)
 
 
 def _is_priority_rule_question(question: str) -> bool:

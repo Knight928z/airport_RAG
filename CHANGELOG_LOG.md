@@ -2,6 +2,14 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-10 05:15:22 +0800
+
+- 提交：`fix(answers): make top_k affect evidence shown in answer body`
+- 变更文件：
+  - `src/airport_rag/service.py`
+  - `tests/test_service_rerank.py`
+- 备注：修复引用条数不影响答案依据展示的问题：规则回答在保留证据绑定前提下按top_k补齐并重排引用，答案中的“依据”段与citations同步；新增回归测试覆盖top_k=1与top_k=3差异。
+
 ## 2026-04-10 05:09:35 +0800
 
 - 提交：`refactor(rag): make battery answers kb-grounded with dual-source citations`

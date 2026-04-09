@@ -2,6 +2,13 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-09 12:26:39 +0800
+
+- 提交：`feat(cli): enrich command interface and built-in self-test modes`
+- 变更文件：
+  - `src/airport_rag/cli.py`
+- 备注：优化 CLI 接口内容：补充更清晰的 help/示例说明；`ingest` 支持默认路径与文本/JSON 双输出；`ask` 增加 answer-only、citations、meta 与 JSON 输出模式；新增 `self-test` 子命令并支持 default/batch1/batch2/all 题集批次、limit 与失败样例输出，直接复用集中题库定义进行本地回归。
+
 ## 2026-04-09 09:49:55 +0800
 
 - 提交：`fix(retrieval): avoid realtime-archive citations for generic arrival intent`

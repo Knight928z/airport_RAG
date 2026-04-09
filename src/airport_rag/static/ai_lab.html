@@ -49,7 +49,8 @@
             </div>
             <div>
               <label>model</label>
-              <input id="rk-model" placeholder="BAAI/bge-reranker-v2-m3" />
+              <input id="rk-model" list="rk-model-options" placeholder="BAAI/bge-reranker-v2-m3" />
+              <datalist id="rk-model-options"></datalist>
             </div>
           </div>
           <div class="row" style="margin-top:8px;">
@@ -82,7 +83,8 @@
             </div>
             <div>
               <label>基础模型</label>
-              <input id="lora-base" value="Qwen/Qwen2.5-0.5B-Instruct" />
+              <input id="lora-base" list="lora-base-options" value="Qwen/Qwen2.5-0.5B-Instruct" />
+              <datalist id="lora-base-options"></datalist>
             </div>
           </div>
           <div class="row" style="margin-top:8px;">
@@ -111,6 +113,9 @@
       const rkResult = document.getElementById('rk-result');
       const rkQuestion = document.getElementById('rk-question');
       const rkCands = document.getElementById('rk-cands');
+    const rkModelOptions = document.getElementById('rk-model-options');
+    const loraBaseOptions = document.getElementById('lora-base-options');
+    const loraBase = document.getElementById('lora-base');
 
       function setStatus(el, text, ok=true) {
         el.textContent = text;
@@ -123,6 +128,31 @@
         if (!res.ok) throw new Error(data.detail || '加载配置失败');
         rkBackend.value = data.backend;
         rkModel.value = data.model_name;
+      }
+
+      function renderOptions(datalistEl, options) {
+        datalistEl.innerHTML = '';
+        (options || []).forEach(item => {
+          const opt = document.createElement('option');
+          opt.value = item;
+          datalistEl.appendChild(opt);
+        });
+      }
+
+      async function loadAiLabOptions() {
+        const res = await fetch('/admin/ai-lab/options');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '加载选项失败');
+
+        const reranker = data.reranker || {};
+        const lora = data.lora || {};
+
+        renderOptions(rkModelOptions, reranker.model_options || []);
+        renderOptions(loraBaseOptions, lora.base_model_options || []);
+
+        if (reranker.current_backend) rkBackend.value = reranker.current_backend;
+        if (reranker.current_model) rkModel.value = reranker.current_model;
+        if (!loraBase.value && lora.default_base_model) loraBase.value = lora.default_base_model;
       }
 
       async function saveRerankerConfig() {
@@ -209,6 +239,7 @@
 
       (async () => {
         try {
+          await loadAiLabOptions();
           await loadRerankerConfig();
           await refreshLoraJobs();
         } catch (e) {

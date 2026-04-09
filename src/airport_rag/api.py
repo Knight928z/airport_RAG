@@ -53,6 +53,20 @@ PATCH_MAX_BYTES = 64 * 1024
 PATCH_MERGE_ENTRY_THRESHOLD = 8
 _LEGACY_PATCH_MIGRATED = False
 
+RERANKER_BACKEND_OPTIONS = ["cross_encoder", "heuristic"]
+RERANKER_MODEL_OPTIONS = [
+    "BAAI/bge-reranker-v2-m3",
+    "BAAI/bge-reranker-base",
+    "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    "jinaai/jina-reranker-v2-base-multilingual",
+]
+LORA_BASE_MODEL_OPTIONS = [
+    "Qwen/Qwen2.5-0.5B-Instruct",
+    "Qwen/Qwen2.5-1.5B-Instruct",
+    "Qwen/Qwen2.5-3B-Instruct",
+    "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+]
+
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -541,7 +555,7 @@ class AdminUpdateDocRequest(BaseModel):
 
 class RerankerConfigRequest(BaseModel):
     backend: str = Field(default="cross_encoder")
-    model_name: str = Field(default="BAAI/bge-reranker-v2-m3")
+    model_name: str = Field(default=RERANKER_MODEL_OPTIONS[0])
 
 
 class RerankerPreviewRequest(BaseModel):
@@ -552,7 +566,7 @@ class RerankerPreviewRequest(BaseModel):
 class LoRATrainRequest(BaseModel):
     train_file: str = Field(description="训练数据路径（json/jsonl）")
     output_subdir: str = Field(default="airport-lora", description="输出目录子路径")
-    base_model: str = Field(default="Qwen/Qwen2.5-0.5B-Instruct")
+    base_model: str = Field(default=LORA_BASE_MODEL_OPTIONS[0])
     epochs: float = Field(default=1.0, ge=0.1, le=20)
     batch_size: int = Field(default=2, ge=1, le=64)
     learning_rate: float = Field(default=2e-4, gt=0)
@@ -1371,14 +1385,32 @@ def admin_get_reranker_config() -> dict:
     }
 
 
+@app.get("/admin/ai-lab/options")
+def admin_get_ai_lab_options() -> dict:
+    current_reranker_model = service.settings.reranker_model or RERANKER_MODEL_OPTIONS[0]
+    reranker_model_options = list(dict.fromkeys([*RERANKER_MODEL_OPTIONS, current_reranker_model]))
+    return {
+        "reranker": {
+            "backend_options": RERANKER_BACKEND_OPTIONS,
+            "model_options": reranker_model_options,
+            "current_backend": service.settings.reranker_backend,
+            "current_model": current_reranker_model,
+        },
+        "lora": {
+            "base_model_options": LORA_BASE_MODEL_OPTIONS,
+            "default_base_model": LORA_BASE_MODEL_OPTIONS[0],
+        },
+    }
+
+
 @app.put("/admin/reranker/config")
 def admin_set_reranker_config(req: RerankerConfigRequest) -> dict:
     backend = (req.backend or "").strip().lower()
-    if backend not in {"cross_encoder", "heuristic"}:
+    if backend not in set(RERANKER_BACKEND_OPTIONS):
         raise HTTPException(status_code=400, detail="backend must be cross_encoder or heuristic")
 
     service.settings.reranker_backend = backend
-    service.settings.reranker_model = (req.model_name or "").strip() or "BAAI/bge-reranker-v2-m3"
+    service.settings.reranker_model = (req.model_name or "").strip() or RERANKER_MODEL_OPTIONS[0]
     service.reranker = RerankerProvider(
         backend=service.settings.reranker_backend,
         model_name=service.settings.reranker_model,

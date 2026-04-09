@@ -2,6 +2,19 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-09 14:01:05 +0800
+
+- 提交：`feat(ai-lab): add model options and tuning guide`
+- 变更文件：
+  - `.gitignore`
+  - `README.md`
+  - `src/airport_rag/api.py`
+  - `src/airport_rag/static/ai_lab.html`
+  - `src/airport_rag_assistant.egg-info/PKG-INFO`
+  - `src/airport_rag_assistant.egg-info/SOURCES.txt`
+  - `tests/test_admin_ai_lab.py`
+- 备注：新增 AI Lab 模型可选项接口与前端候选列表，补充 README/PKG-INFO AI 调优用法并纳入上轮未提交改动
+
 ## 2026-04-09 13:14:12 +0800
 
 - 提交：`feat(ai-lab): add LoRA fine-tuning jobs and reranker visualization panel`

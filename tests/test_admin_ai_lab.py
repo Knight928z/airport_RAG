@@ -66,3 +66,20 @@ def test_admin_lora_train_accepts_job_and_returns_job_id(tmp_path: Path, monkeyp
     assert body["status"] == "accepted"
     assert body["job"]["job_id"] == "job-test-1"
     assert body["job"]["config"]["train_file"] == str(train_file.resolve())
+
+
+def test_admin_ai_lab_options_contains_presets_and_current_reranker(monkeypatch) -> None:
+    monkeypatch.setattr(api_module.service.settings, "reranker_backend", "cross_encoder")
+    monkeypatch.setattr(api_module.service.settings, "reranker_model", "my/custom-reranker")
+
+    client = TestClient(api_module.app)
+    resp = client.get("/admin/ai-lab/options")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["reranker"]["current_backend"] == "cross_encoder"
+    assert body["reranker"]["current_model"] == "my/custom-reranker"
+    assert "cross_encoder" in body["reranker"]["backend_options"]
+    assert "heuristic" in body["reranker"]["backend_options"]
+    assert "my/custom-reranker" in body["reranker"]["model_options"]
+    assert "Qwen/Qwen2.5-0.5B-Instruct" in body["lora"]["base_model_options"]

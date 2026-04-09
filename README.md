@@ -5,6 +5,8 @@
 - 支持文档入库：PDF / Markdown / TXT / 无后缀纯文本文档（如 `出发指南-国内出发`）
 - 支持图片文档 OCR 入库：PNG / JPG / JPEG / WEBP / TIFF / BMP（管理端批量上传后自动生成 OCR 文本侧车文件）
 - 基于 Chroma 的向量检索
+- 支持可配置 reranker（cross-encoder / heuristic fallback）优化检索重排
+- 支持 LoRA 微调任务管理（后台提交 + 状态追踪）
 - 使用 LangChain 增强语义切分与问答生成链路
 - 回答自带可追溯引用
 - 输出风格符合机场业务专业规范（结论、依据、执行建议、风险提示）
@@ -69,11 +71,19 @@ VARIFLIGHT_MCP_TIMEOUT=10
   - `false`：仅加载本地已缓存 embedding 模型，未命中即快速回退到 hashing，避免网络超时拖慢首问。
   - `true`：允许在线拉取模型（首次可能较慢，受外网影响）。
 
+- `RAG_RERANKER_BACKEND`（默认 `cross_encoder`）：
+  - `cross_encoder`：优先使用 cross-encoder 模型重排
+  - `heuristic`：使用启发式重排（无需模型）
+
+- `RAG_RERANKER_MODEL`（默认 `BAAI/bge-reranker-v2-m3`）：
+  - 当 `RAG_RERANKER_BACKEND=cross_encoder` 时生效。
+
 ## API 概览
 
 - `GET /health`：健康检查
 - `GET /app`：普通人员可用的问答前端页面
 - `GET /admin`：管理人员文档后台页面（可视化文档管理）
+- `GET /admin/ai-lab`：AI 调优实验窗（LoRA + reranker 可视化）
 - `GET /admin/patches`：补丁治理面板（统计与审核）
 - `GET /admin/ocr-review`：OCR 人工校对面板（侧车文本复核与入库同步）
 - `POST /flight/realtime`：实时航班查询（MCP，返回标准化航班卡片字段）
@@ -119,6 +129,58 @@ OCR 人工校对 API：
 
 - `GET /admin/patches/stats`：查看主题补丁数量、去重率、合并次数
 - `POST /admin/patches/review-merge?cleanup=true`：一键审核后回写主文档并清理补丁（可关闭 cleanup 仅回写）
+
+AI 调优实验窗 API：
+
+- Reranker：
+  - `GET /admin/ai-lab/options`：获取推荐 backend / 模型可选项（前端下拉使用）
+  - `GET /admin/reranker/config`：读取当前重排配置
+  - `PUT /admin/reranker/config`：更新重排后端与模型
+  - `POST /admin/reranker/preview`：输入问题与候选文本，返回打分与排序预览
+
+- LoRA：
+  - `POST /admin/lora/train`：提交 LoRA 微调任务
+  - `GET /admin/lora/jobs`：查看任务列表
+  - `GET /admin/lora/jobs/{job_id}`：查看单任务状态
+
+默认推荐模型可选项：
+
+- Reranker backend：`cross_encoder`、`heuristic`
+- Reranker model：
+  - `BAAI/bge-reranker-v2-m3`（默认）
+  - `BAAI/bge-reranker-base`
+  - `cross-encoder/ms-marco-MiniLM-L-6-v2`
+  - `jinaai/jina-reranker-v2-base-multilingual`
+- LoRA base model：
+  - `Qwen/Qwen2.5-0.5B-Instruct`（默认）
+  - `Qwen/Qwen2.5-1.5B-Instruct`
+  - `Qwen/Qwen2.5-3B-Instruct`
+  - `TinyLlama/TinyLlama-1.1B-Chat-v1.0`
+
+> 调优页面依然支持手工输入自定义模型名；上面列表是开箱即用的推荐组合。
+
+## AI 调优使用方法（Reranker + LoRA）
+
+推荐按“先重排、后微调、再回归”的顺序执行：
+
+1. 进入 `GET /admin/ai-lab` 打开调优实验窗。
+
+1. 在 **Reranker 调试** 中，先选 backend（默认 `cross_encoder`），再选或手填模型；输入真实业务问题与 3~10 条候选文本后执行 `重排预览`；观察 Top1/Top3 是否更符合业务规则，满意后点“保存配置”。
+
+1. 在 **LoRA 微调任务** 中，准备 `json/jsonl` 训练文件（建议先用 50~200 条高质量样本热身）；选择基础模型、`epochs`、`batch_size`、`learning_rate` 后提交任务；在任务列表跟踪 `queued -> running -> succeeded/failed`。
+
+1. 任务成功后做小回归，重点抽查高频问题（行李、海关、边检、实时航班边界问题），并保留至少 1 组固定测试题与历史结果做横向对比。
+
+调优参数建议（起步值）：
+
+- LoRA：`epochs=1~2`、`batch_size=2~8`、`learning_rate=1e-4~3e-4`
+- Reranker：优先 `BAAI/bge-reranker-v2-m3`，资源受限时可切 `heuristic`
+
+建议的验收标准（可按团队指标调整）：
+
+- 关键业务题 Top1 命中率提升或持平；
+- `low-confidence` 比例不上升；
+- 无新增误答（特别是“非实时问题误引用实时航班存档”这类历史问题）。
 
 新增文档的自动分类优先级：
 

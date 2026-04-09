@@ -640,6 +640,10 @@ def build_rule_based_answer(question: str, retrieved: list[RetrievedChunk]) -> R
     if liquid is not None:
         return liquid
 
+    baggage_url = _build_baggage_rule_url_answer(question, retrieved)
+    if baggage_url is not None:
+        return baggage_url
+
     cabin_baggage = _build_cabin_baggage_allowance_answer(question, retrieved)
     if cabin_baggage is not None:
         return cabin_baggage
@@ -919,6 +923,78 @@ def _build_cabin_baggage_allowance_answer(question: str, retrieved: list[Retriev
         f"- [1] {best_sentence[:180]}（来源：{best_item.source}）",
         "执行建议：若涉及具体航司航线，请同时核对承运航司行李政策是否存在更严格限制。",
         "风险提示：不同航司或特殊票价产品可能存在差异，最终以购票规则与值机执行标准为准。",
+    ]
+    return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[best_item.chunk_id])
+
+
+def _extract_urls(text: str) -> list[str]:
+    found: list[str] = []
+    for m in re.finditer(r"https?://[^\s\u3000\)\]\uFF09\u300B\">]+", text or ""):
+        url = m.group(0).strip().rstrip(".,;:!?)）】")
+        if url and url not in found:
+            found.append(url)
+    return found
+
+
+def _build_baggage_rule_url_answer(question: str, retrieved: list[RetrievedChunk]) -> RuleResult | None:
+    q = (question or "").lower()
+    asks_baggage_rule = any(k in q for k in ["行李", "托运", "手提", "baggage", "luggage"])
+    asks_link_intent = any(k in q for k in ["官网", "官方网站", "网址", "链接", "页面", "网站", "网页", "url", "http", "https"])
+    if _is_compare_question(question):
+        return None
+    if not (asks_baggage_rule and asks_link_intent):
+        return None
+
+    has_specific_carrier = _question_mentions_specific_carrier(question)
+    carrier_tokens = _carrier_query_tokens(question)
+
+    best_item: RetrievedChunk | None = None
+    best_url = ""
+    best_score = -1
+
+    for item in retrieved:
+        scope, _carrier = _source_scope_and_carrier(item)
+        if has_specific_carrier and scope != "airline":
+            continue
+
+        joined = f"{item.source} {item.text}"
+        joined_norm = _normalize_for_matching(joined)
+
+        if carrier_tokens and not any(tok in joined_norm for tok in carrier_tokens):
+            continue
+
+        urls = _extract_urls(joined)
+        if not urls:
+            continue
+
+        score = 0
+        if any(k in joined_norm for k in ["行李", "托运", "手提", "baggage", "luggage"]):
+            score += 6
+        if any(k in joined_norm for k in ["官网", "官方网站", "official", "website", "网站"]):
+            score += 4
+        if has_specific_carrier and carrier_tokens and any(tok in joined_norm for tok in carrier_tokens):
+            score += 4
+
+        if score > best_score:
+            best_score = score
+            best_item = item
+            best_url = urls[0]
+
+    if best_item is None or not best_url:
+        lines = [
+            "结论：当前知识库未检索到可直接打开的行李规则官网链接。",
+            "依据：已检索到行李主题内容，但未命中可稳定核验的 URL 条款。",
+            "执行建议：请通过目标航司官网或官方 App 的“行李规则/行李服务”页面核验最新链接。",
+            "风险提示：网页路径可能变更，使用历史链接可能失效或跳转到非最新规则页。",
+        ]
+        return RuleResult(answer="\n".join(lines), note="low-confidence", evidence_chunk_ids=[])
+
+    lines = [
+        f"结论：可直接查阅行李规则页面：{best_url}",
+        "依据：",
+        f"- [1] {_extract_relevant_span(question, best_item.text, max_chars=180)}（来源：{best_item.source}）",
+        "执行建议：优先以该官方链接中的最新发布时间和适用范围为准，再按具体航线/舱位核对细则。",
+        "风险提示：不同航线、票价产品与会员等级可能存在差异，最终以购票当日页面条款为准。",
     ]
     return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[best_item.chunk_id])
 
@@ -1774,6 +1850,31 @@ def _question_mentions_specific_carrier(question: str) -> bool:
     return code_match.group(1).upper() != "WH"
 
 
+def _carrier_query_tokens(question: str) -> set[str]:
+    q = (question or "").lower()
+    tokens: set[str] = set()
+
+    alias_groups: dict[str, set[str]] = {
+        "CZ": {"cz", "南航", "中国南方航空", "南方航空", "china southern"},
+        "MU": {"mu", "东航", "中国东方航空", "东方航空", "china eastern"},
+        "CA": {"ca", "国航", "中国国际航空", "国际航空", "air china"},
+        "9C": {"9c", "春秋", "春秋航空", "spring airlines"},
+        "EK": {"ek", "阿联酋", "阿联酋航空", "emirates"},
+    }
+
+    for aliases in alias_groups.values():
+        if any(alias in q for alias in aliases):
+            tokens.update({a.lower() for a in aliases})
+
+    code_match = re.search(r"(?<![A-Za-z0-9])([A-Za-z0-9]{2})(?![A-Za-z0-9])", question or "")
+    if code_match:
+        code = code_match.group(1).upper()
+        if code in alias_groups:
+            tokens.update({a.lower() for a in alias_groups[code]})
+
+    return tokens
+
+
 def _build_pregnancy_answer(question: str, retrieved: list[RetrievedChunk]) -> RuleResult | None:
     if not _is_pregnancy_question(question):
         return None
@@ -1838,18 +1939,9 @@ def _build_contact_answer(question: str, retrieved: list[RetrievedChunk]) -> Rul
     if not _is_contact_question(question):
         return None
 
-    q_norm = _normalize_for_matching(question)
-    if any(k in q_norm for k in ["春秋", "春秋航空", "9c"]) and any(k in q_norm for k in ["客服", "热线", "电话"]):
-        lines = [
-            "结论：当前知识库对春秋航空客服热线的证据稳定性不足，建议人工复核官方渠道。",
-            "依据：检索结果存在号码片段，但缺少可持续校验的官方时效标记。",
-            "执行建议：请通过春秋航空官网或官方 App 核验最新客服联系方式。",
-            "风险提示：号码可能更新，直接引用历史号码可能导致误导。",
-        ]
-        return RuleResult(answer="\n".join(lines), note="low-confidence", evidence_chunk_ids=[])
-
     is_airport_contact = _is_airport_contact_question(question)
     has_specific_carrier = _question_mentions_specific_carrier(question)
+    carrier_tokens = _carrier_query_tokens(question)
 
     if not has_specific_carrier and not is_airport_contact:
         return None
@@ -1867,6 +1959,11 @@ def _build_contact_answer(question: str, retrieved: list[RetrievedChunk]) -> Rul
             scope, _carrier = _source_scope_and_carrier(item)
             if scope != "airline":
                 continue
+
+            if carrier_tokens:
+                joined_lower = _normalize_for_matching(f"{item.source} {item.text}")
+                if not any(token in joined_lower for token in carrier_tokens):
+                    continue
         joined = _normalize_for_matching(f"{item.source} {item.text}")
         cue_score = sum(1 for kw in ["客服", "热线", "电话", "联系", "号码"] if kw in joined)
         numbers = _extract_contact_numbers(joined)
@@ -1879,6 +1976,14 @@ def _build_contact_answer(question: str, retrieved: list[RetrievedChunk]) -> Rul
             best_item = item
 
     if best_item is None or not best_numbers:
+        if is_airport_contact or has_specific_carrier:
+            lines = [
+                "结论：当前知识库未检索到可稳定核验的客服热线号码。",
+                "依据：检索结果未命中明确号码，或号码与目标对象（机场/航司）匹配度不足。",
+                "执行建议：请通过对应官方渠道（官网/官方 App/公告）核验最新联系方式。",
+                "风险提示：联系方式可能更新，缺少证据时直接引用号码可能误导办理。",
+            ]
+            return RuleResult(answer="\n".join(lines), note="low-confidence", evidence_chunk_ids=[])
         return None
 
     numbers_text = "、".join(best_numbers)

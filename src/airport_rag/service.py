@@ -48,6 +48,7 @@ from .vector_store import ChromaStore, RetrievedChunk
 
 
 LOGGER = logging.getLogger(__name__)
+_URL_PATTERN = re.compile(r"https?://[^\s\u3000\)\]\uFF09\u300B\">]+")
 
 
 @dataclass
@@ -456,6 +457,17 @@ def _question_log_excerpt(question: str, max_len: int = 80) -> str:
     return f"{s[:max_len]}..."
 
 
+def _linkify_urls(text: str) -> str:
+    if not text:
+        return text
+
+    def _replace(match: re.Match[str]) -> str:
+        url = match.group(0)
+        return f"[{url}]({url})"
+
+    return _URL_PATTERN.sub(_replace, text)
+
+
 @lru_cache(maxsize=2)
 def _load_local_lora_model(base_model: str, adapter_path: str) -> tuple[Any, Any]:
     from peft import PeftModel
@@ -531,12 +543,14 @@ def _sync_answer_evidence_with_citations(answer: str, citations: list[Citation])
     is_en = lines[evidence_start].strip() == "Evidence:"
     evidence_lines: list[str] = []
     for c in citations:
+        source_text = _linkify_urls(c.source)
+        snippet_text = _linkify_urls(c.snippet)
         if is_en:
             page_suffix = f", page: {c.page}" if c.page is not None else ""
-            evidence_lines.append(f"- [{c.index}] {c.snippet} (source: {c.source}{page_suffix})")
+            evidence_lines.append(f"- [{c.index}] {snippet_text} (source: {source_text}{page_suffix})")
         else:
             page_suffix = f"，页码：{c.page}" if c.page is not None else ""
-            evidence_lines.append(f"- [{c.index}] {c.snippet}（来源：{c.source}{page_suffix}）")
+            evidence_lines.append(f"- [{c.index}] {snippet_text}（来源：{source_text}{page_suffix}）")
 
     updated = lines[: evidence_start + 1] + evidence_lines + lines[evidence_end:]
     return "\n".join(updated)
@@ -911,6 +925,11 @@ def _build_intent_query_fallbacks(question: str) -> list[str]:
 
     if "9c" in q and any(k in q for k in ["餐食", "餐饮", "免费餐"]):
         fallbacks.append("春秋航空 不提供免费的餐饮 尊享飞 有偿提供餐食")
+
+    if "9c" in q and any(k in q for k in ["行李", "托运", "手提"]) and any(
+        k in q for k in ["官网", "官方网站", "网址", "链接", "页面", "url", "http", "https"]
+    ):
+        fallbacks.append("春秋航空 官网 行李规则 页面 链接 https 行李服务")
 
     if "外国" in q and "旅游团" in q and any(k in q for k in ["入境", "需要带", "证件", "材料"]):
         fallbacks.append("外国旅游团 入境 交验护照 团体旅游签证名单表 原件 复印件")

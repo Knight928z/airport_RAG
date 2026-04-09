@@ -2,6 +2,24 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-10 07:15:31 +0800
+
+- 提交：`fix(baggage-url): retrieve and display spring official baggage-rule url`
+- 变更文件：
+  - `src/airport_rag/rules.py`
+  - `src/airport_rag/service.py`
+  - `tests/test_service_rerank.py`
+- 备注：新增“航司行李规则链接”规则分支：当问题明确询问官网/链接/URL时，优先从检索证据抽取可打开链接并直接给出；若未命中稳定URL则返回统一 low-confidence 模板（可复用于未覆盖航司文档）。同时为春秋(9C)行李链接问题补充检索回退 query，修复 URL 漏召回；补充回归测试并通过。按流程自动执行 changelog + git。
+
+## 2026-04-10 06:48:14 +0800
+
+- 提交：`fix(contact): enable carrier hotline answering and linkify web evidence`
+- 变更文件：
+  - `src/airport_rag/rules.py`
+  - `src/airport_rag/service.py`
+  - `tests/test_service_rerank.py`
+- 备注：移除春秋热线硬编码 low-confidence，改为“命中号码则回答、无稳定号码则统一低置信模板（适用于未覆盖航司文档）”；增强航司联系人问题的载体匹配；将依据区中的 URL 自动转为可点击超链接；补充回归测试覆盖春秋号码回答、无号码低置信模板与 URL 链接化。
+
 ## 2026-04-10 06:17:24 +0800
 
 - 提交：`fix(runtime): fallback to rag-first mode and log generation/lora failures`

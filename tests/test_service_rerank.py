@@ -18,7 +18,9 @@ from airport_rag.service import (
     _focus_retrieved,
     _intent_compatible,
     _rerank_retrieved,
+    _sync_answer_evidence_with_citations,
 )
+from airport_rag.schemas import Citation
 from airport_rag.rules import build_refund_rule_answer, build_ticket_insurance_refund_answer
 from airport_rag.vector_store import RetrievedChunk
 
@@ -1171,7 +1173,47 @@ def test_rule_based_contact_answer_extracts_airport_hotline_numbers() -> None:
     assert "96158" in ans.answer
 
 
-def test_contact_question_without_number_does_not_create_contact_rule_answer() -> None:
+def test_rule_based_answer_returns_spring_baggage_url_when_available() -> None:
+    retrieved = [
+        RetrievedChunk(
+            chunk_id="9c-baggage-url-1",
+            text="根据文档，详细信息请参阅春秋航空官方网站的行李规则页面：https://www.ch.com/flight/baggage。",
+            source="/data/documents/9C/旅客须知",
+            page=None,
+            distance=0.1,
+            doc_scope="airline",
+            carrier="9C",
+        )
+    ]
+
+    ans = _build_rule_based_answer("春秋航空行李规则官网链接是什么？", retrieved)
+
+    assert ans is not None
+    assert ans.note == "rule-based"
+    assert "https://www.ch.com/flight/baggage" in ans.answer
+
+
+def test_rule_based_answer_returns_low_confidence_for_baggage_url_without_link() -> None:
+    retrieved = [
+        RetrievedChunk(
+            chunk_id="unknown-baggage-1",
+            text="行李规则请以航司最新公告为准。",
+            source="/data/documents/XX/行李规定",
+            page=None,
+            distance=0.1,
+            doc_scope="airline",
+            carrier="XX",
+        )
+    ]
+
+    ans = _build_rule_based_answer("某航司行李规则官网链接是什么？", retrieved)
+
+    assert ans is not None
+    assert ans.note == "low-confidence"
+    assert "未检索到可直接打开的行李规则官网链接" in ans.answer
+
+
+def test_contact_question_without_number_returns_low_confidence_template() -> None:
     retrieved = [
         RetrievedChunk(
             chunk_id="cz-contact-2",
@@ -1186,7 +1228,29 @@ def test_contact_question_without_number_does_not_create_contact_rule_answer() -
 
     ans = _build_rule_based_answer("南航客服电话是多少？", retrieved)
 
-    assert ans is None
+    assert ans is not None
+    assert ans.note == "low-confidence"
+    assert "未检索到可稳定核验的客服热线号码" in ans.answer
+
+
+def test_contact_question_for_spring_with_number_should_answer_from_evidence() -> None:
+    retrieved = [
+        RetrievedChunk(
+            chunk_id="9c-contact-1",
+            text="春秋航空官方客服热线：95524（服务时间以官网公告为准）。",
+            source="/data/documents/9C/客服联系方式",
+            page=None,
+            distance=0.1,
+            doc_scope="airline",
+            carrier="9C",
+        )
+    ]
+
+    ans = _build_rule_based_answer("春秋航空客服电话是多少？", retrieved)
+
+    assert ans is not None
+    assert ans.note in {"rule-based", "grounded-factoid"}
+    assert "95524" in ans.answer
 
 
 def test_contact_factoid_requires_phone_number() -> None:
@@ -1368,3 +1432,28 @@ def test_default_generation_backend_is_disabled_for_rag_first() -> None:
     settings = get_settings()
 
     assert settings.generation_backend in {"disabled", "off", "none"}
+
+
+def test_sync_answer_evidence_linkifies_urls_in_citations() -> None:
+    answer = "\n".join(
+        [
+            "结论：可参考官方页面说明。",
+            "依据：",
+            "- [1] 占位。",
+            "执行建议：按官网为准。",
+            "风险提示：注意版本更新。",
+        ]
+    )
+    citations = [
+        Citation(
+            index=1,
+            source="https://www.ch.com/baggage",
+            page=None,
+            chunk_id="url-1",
+            snippet="详细信息请参阅 https://www.ch.com/baggage 行李规则页面。",
+        )
+    ]
+
+    synced = _sync_answer_evidence_with_citations(answer, citations)
+
+    assert "[https://www.ch.com/baggage](https://www.ch.com/baggage)" in synced

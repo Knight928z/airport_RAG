@@ -35,11 +35,14 @@
   <body>
     <div class="wrap">
       <h1>AI 调优实验窗</h1>
-      <p class="muted">在此页面内可完成 reranker 调试与 LoRA 微调任务提交。<a href="/admin" style="color:#225cff;text-decoration:none;">返回后台</a></p>
+  <p class="muted">按“先重排验证，再 LoRA 微调”的顺序即可快速上手。<a href="/admin" style="color:#225cff;text-decoration:none;">返回后台</a></p>
 
       <div class="grid">
         <section class="card">
           <h2>Reranker 调试</h2>
+          <div class="muted" style="margin-bottom:8px; line-height:1.6;">
+            快速上手：① 填充示例 → ② 执行重排预览 → ③ 观察 Top1/Top3 与分数间隔 → ④ 满意后保存配置。
+          </div>
           <div class="row">
             <div>
               <label>backend</label>
@@ -59,6 +62,11 @@
             <button id="rk-refresh" class="secondary">刷新</button>
           </div>
 
+          <div class="row" style="margin-top:8px;">
+            <button id="rk-fill-airport-vs-airline" class="secondary" type="button">填充示例：机场 vs 航司</button>
+            <button id="rk-fill-customs" class="secondary" type="button">填充示例：海关申报</button>
+          </div>
+
           <label style="margin-top:10px;">问题</label>
           <input id="rk-question" placeholder="国际到达是什么？" />
           <label style="margin-top:8px;">候选文本（每行一条）</label>
@@ -72,16 +80,21 @@
 
         <section class="card">
           <h2>LoRA 微调任务</h2>
+          <div class="muted" style="margin-bottom:8px; line-height:1.6;">
+            快速上手：① 选择训练文件 → ② 用默认参数先跑小样本 → ③ 观察 queued/running/succeeded → ④ 再放大数据量。
+          </div>
           <div class="row">
             <div>
               <label>训练文件（json/jsonl 绝对路径）</label>
               <input id="lora-train-file" placeholder="/Users/.../train.jsonl" />
+              <div class="muted" style="margin-top:4px;">若服务跑在 Docker 中，可直接填 <code>/app/data/...</code>；页面会自动尝试将 <code>/Users/.../RAG/</code> 映射到 <code>/app/</code>。</div>
+              <div class="muted" id="lora-train-file-resolved" style="margin-top:4px;">容器路径预览：-</div>
             </div>
           </div>
           <div class="row" style="margin-top:8px;">
             <div>
               <label>输出子目录</label>
-              <input id="lora-out" value="airport-lora" />
+              <input id="lora-out" value="airport-lora/quickstart" />
             </div>
             <div>
               <label>基础模型</label>
@@ -101,6 +114,7 @@
           </div>
           <button id="lora-submit" style="margin-top:10px;">提交训练任务</button>
           <button id="lora-refresh" class="secondary" style="margin-top:10px;">刷新任务列表</button>
+          <button id="lora-fill-customs-topic" class="secondary" style="margin-top:10px;" type="button">填充示例：海关申报主题训练</button>
 
           <div id="lora-status" class="status"></div>
           <div id="lora-jobs" class="mono" style="margin-top:8px; border:1px solid var(--line); border-radius:8px; padding:8px; max-height:320px; overflow:auto;"></div>
@@ -119,6 +133,8 @@
       const loraBaseOptions = document.getElementById('lora-base-options');
       const loraBase = document.getElementById('lora-base');
       const rkMetrics = document.getElementById('rk-metrics');
+  const loraTrainFile = document.getElementById('lora-train-file');
+  const loraTrainFileResolved = document.getElementById('lora-train-file-resolved');
 
       function setStatus(el, text, ok=true) {
         el.textContent = text;
@@ -200,12 +216,85 @@
         setStatus(rkStatus, `重排完成（${data.backend}）`);
       }
 
+      function fillRerankerAirportVsAirline() {
+        rkQuestion.value = '春秋航空120Wh充电宝可以带吗？';
+        rkCands.value = [
+          '充电宝、锂电池禁止作为行李托运，随身携带时有以下限定条件。',
+          '经航空公司批准，每位旅客最多可携带2块额定能量大于100Wh但不超过160Wh的备用锂电池乘机。',
+          '国际到达流程请按指引前往到达层办理边检。',
+          '严禁携带额定能量超过160Wh的锂电池。',
+        ].join('\n');
+        setStatus(rkStatus, '已填充“机场 vs 航司”示例，可直接点“执行重排预览”。');
+      }
+
+      function fillRerankerCustoms() {
+        rkQuestion.value = '入境旅客携带超过限额现金需要申报吗？';
+        rkCands.value = [
+          '进出境旅客携带外币现钞应按规定向海关如实申报。',
+          '超过规定限额的人民币现钞应主动申报并配合查验。',
+          '国内航班液体物品一般禁止随身携带。',
+          '海关红色通道适用于有需申报物品的旅客。',
+        ].join('\n');
+        setStatus(rkStatus, '已填充“海关申报”示例，可直接点“执行重排预览”。');
+      }
+
       const loraStatus = document.getElementById('lora-status');
       const loraJobs = document.getElementById('lora-jobs');
 
+      function normalizeTrainFilePath(rawPath) {
+        const p = String(rawPath || '').trim();
+        if (!p) return '';
+        if (p.startsWith('/app/')) return p;
+        const marker = '/RAG/';
+        const idx = p.indexOf(marker);
+        if (idx >= 0) {
+          return '/app/' + p.slice(idx + marker.length);
+        }
+        return p;
+      }
+
+      function updateResolvedTrainPath() {
+        const mapped = normalizeTrainFilePath(loraTrainFile.value);
+        loraTrainFileResolved.textContent = `容器路径预览：${mapped || '-'}`;
+      }
+
+      function fillLoraCustomsTopic() {
+        loraTrainFile.value = '/app/data/lora/train_customs_declare_20260410.jsonl';
+        document.getElementById('lora-out').value = 'airport-lora/customs-declare-20260410';
+        document.getElementById('lora-epochs').value = '0.5';
+        document.getElementById('lora-bs').value = '1';
+        document.getElementById('lora-lr').value = '0.0002';
+        document.getElementById('lora-r').value = '8';
+        document.getElementById('lora-alpha').value = '16';
+        document.getElementById('lora-drop').value = '0.05';
+        updateResolvedTrainPath();
+        setStatus(loraStatus, '已填充“海关申报主题”LoRA 参数，可直接提交。');
+      }
+
+      async function pollLoraJob(jobId, maxRounds = 20, intervalMs = 3000) {
+        for (let i = 0; i < maxRounds; i++) {
+          const res = await fetch(`/admin/lora/jobs/${jobId}`);
+          const data = await res.json();
+          if (!res.ok) {
+            setStatus(loraStatus, data.detail || '任务状态查询失败', false);
+            return;
+          }
+          await refreshLoraJobs();
+          if (['succeeded', 'failed'].includes((data.status || '').toLowerCase())) {
+            const ok = data.status === 'succeeded';
+            setStatus(loraStatus, `任务 ${data.status}：${data.message || ''}`, ok);
+            return;
+          }
+          setStatus(loraStatus, `任务进行中（${i + 1}/${maxRounds}）：${data.message || data.status}`);
+          await new Promise((resolve) => setTimeout(resolve, intervalMs));
+        }
+        setStatus(loraStatus, '任务仍在运行中，请稍后点“刷新任务列表”查看最新状态。');
+      }
+
       async function submitLoraJob() {
+        const normalizedTrainFile = normalizeTrainFilePath(loraTrainFile.value);
         const payload = {
-          train_file: document.getElementById('lora-train-file').value.trim(),
+          train_file: normalizedTrainFile,
           output_subdir: document.getElementById('lora-out').value.trim(),
           base_model: document.getElementById('lora-base').value.trim(),
           epochs: Number(document.getElementById('lora-epochs').value),
@@ -222,6 +311,7 @@
         if (!res.ok) throw new Error(data.detail || '提交失败');
         setStatus(loraStatus, `任务已提交：${data.job.job_id}`);
         await refreshLoraJobs();
+        await pollLoraJob(data.job.job_id, 12, 3000);
       }
 
       async function refreshLoraJobs() {
@@ -249,15 +339,21 @@
       document.getElementById('rk-refresh').onclick = async () => { try { await loadRerankerConfig(); setStatus(rkStatus, '配置已刷新'); } catch (e) { setStatus(rkStatus, e.message, false); } };
       document.getElementById('rk-save').onclick = async () => { try { await saveRerankerConfig(); } catch (e) { setStatus(rkStatus, e.message, false); } };
       document.getElementById('rk-run').onclick = async () => { try { await previewRerank(); } catch (e) { setStatus(rkStatus, e.message, false); } };
+      document.getElementById('rk-fill-airport-vs-airline').onclick = () => fillRerankerAirportVsAirline();
+      document.getElementById('rk-fill-customs').onclick = () => fillRerankerCustoms();
 
       document.getElementById('lora-submit').onclick = async () => { try { await submitLoraJob(); } catch (e) { setStatus(loraStatus, e.message, false); } };
       document.getElementById('lora-refresh').onclick = async () => { try { await refreshLoraJobs(); setStatus(loraStatus, '任务列表已刷新'); } catch (e) { setStatus(loraStatus, e.message, false); } };
+      document.getElementById('lora-fill-customs-topic').onclick = () => fillLoraCustomsTopic();
+      loraTrainFile.addEventListener('input', updateResolvedTrainPath);
 
       (async () => {
         try {
           await loadAiLabOptions();
           await loadRerankerConfig();
           await refreshLoraJobs();
+          updateResolvedTrainPath();
+          fillRerankerAirportVsAirline();
         } catch (e) {
           console.error(e);
         }

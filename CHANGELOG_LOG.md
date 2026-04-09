@@ -2,6 +2,14 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-10 05:43:32 +0800
+
+- 提交：`docs(ui): simplify ai-lab onboarding for reranker and lora`
+- 变更文件：
+  - `README.md`
+  - `src/airport_rag/static/ai_lab.html`
+- 备注：优化 AI Lab 使用体验：新增流程化说明、示例一键填充、LoRA 训练文件容器路径自动映射预览与任务自动轮询；README 增补新手操作路径与 Docker 路径映射说明。
+
 ## 2026-04-10 05:15:22 +0800
 
 - 提交：`fix(answers): make top_k affect evidence shown in answer body`

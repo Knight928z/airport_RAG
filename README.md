@@ -165,11 +165,22 @@ AI 调优实验窗 API：
 
 1. 进入 `GET /admin/ai-lab` 打开调优实验窗。
 
-1. 在 **Reranker 调试** 中，先选 backend（默认 `cross_encoder`），再选或手填模型；输入真实业务问题与 3~10 条候选文本后执行 `重排预览`；观察 Top1/Top3 是否更符合业务规则，满意后点“保存配置”。
+1. 在 **Reranker 调试** 中，先点击页面内置示例（如“机场 vs 航司”“海关申报”），执行 `重排预览` 后重点看 Top1/Top3 与 `top_score_gap`，满意后再点“保存配置”。
 
-1. 在 **LoRA 微调任务** 中，准备 `json/jsonl` 训练文件（建议先用 50~200 条高质量样本热身）；选择基础模型、`epochs`、`batch_size`、`learning_rate` 后提交任务；在任务列表跟踪 `queued -> running -> succeeded/failed`。
+1. 在 **LoRA 微调任务** 中，优先使用小样本热身（10~50 条先验证流程）；参数建议先保持默认：`epochs=0.5~1`、`batch_size=1~2`、`learning_rate=2e-4`；提交后观察任务状态 `queued -> running -> succeeded/failed`。
 
 1. 任务成功后做小回归，重点抽查高频问题（行李、海关、边检、实时航班边界问题），并保留至少 1 组固定测试题与历史结果做横向对比。
+
+### LoRA 训练文件路径说明（Docker 部署必看）
+
+- 若服务跑在 Docker 容器内，训练文件路径应使用容器路径：`/app/data/...`
+- 常见映射：本机 `/Users/<you>/RAG/data/lora/train_xxx.jsonl` 对应容器 `/app/data/lora/train_xxx.jsonl`
+- 调优页面已内置路径映射提示与预览，推荐直接使用 `/app/...` 路径提交
+
+### 推荐的首轮微调主题
+
+- 先选单一高频主题（如“海关申报”或“行李托运”）做一轮小样本验证；
+- 单主题验证通过后，再扩展到多主题联合训练，避免一次性范围过大导致定位困难。
 
 调优参数建议（起步值）：
 

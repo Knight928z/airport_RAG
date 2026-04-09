@@ -1146,39 +1146,13 @@ def _build_battery_answer(question: str, retrieved: list[RetrievedChunk]) -> Rul
         r for r in retrieved if any(k in f"{r.source} {r.text}".lower() for k in ["充电宝", "锂电池", "wh", "额定能量"])
     ]
     if not evidence:
-        if asks_checked:
-            conclusion = "不能托运。"
-        elif asked_wh is not None:
-            if asked_wh > 160:
-                conclusion = "不能。"
-            elif asked_wh > 100:
-                conclusion = "有条件可以（通常需航空公司同意）。"
-            else:
-                conclusion = "可以。"
-        elif asks_carry:
-            conclusion = "请先确认充电宝铭牌Wh值后按分级判断（≤100Wh通常可携带；100-160Wh通常需航司同意；>160Wh通常不能携带）。"
-        else:
-            conclusion = "请先确认是否托运以及额定能量（Wh）后再判断。"
-
-        subject = "充电宝/锂电池"
-        if asked_wh is not None:
-            if wh_is_estimated_from_mah and asked_mah is not None:
-                subject = f"约{asked_mah:.0f}mAh充电宝（按3.7V估算约{asked_wh:g}Wh）"
-            else:
-                subject = f"{asked_wh:g}Wh充电宝"
-        elif asked_mah is not None:
-            if wh_is_estimated_from_mah:
-                subject = f"约{asked_mah:.0f}mAh充电宝（按3.7V估算约{asked_wh:g}Wh）"
-            else:
-                subject = f"约{asked_mah:.0f}mAh充电宝"
-
         lines = [
-            f"结论：针对{subject}，{conclusion}",
-            "依据：根据民航旅客携带锂电池/充电宝的通行规则，充电宝通常禁止托运，随身携带按Wh分级管理。",
-            "执行建议：以航空公司与安检现场最新规定为准，必要时提前联系航司确认。",
-            "风险提示：若产品无明确Wh标识或无厂牌参数，现场可能拒绝放行，需人工复核。",
+            "结论：当前知识库未检索到可直接回答该问题的充电宝业务证据。",
+            "依据：未命中包含“充电宝/锂电池/额定能量/Wh”的可核验文档条款。",
+            "执行建议：请补充对应条款后再判断（例如≤100Wh、100-160Wh、>160Wh分级规则及托运限制）。",
+            "风险提示：在缺少文档依据时直接给出可否结论可能误导安检执行，需人工复核。",
         ]
-        return RuleResult(answer="\n".join(lines), evidence_chunk_ids=[])
+        return RuleResult(answer="\n".join(lines), note="low-confidence", evidence_chunk_ids=[])
 
     def _battery_item_score(item: RetrievedChunk) -> tuple[int, float]:
         joined = f"{item.source} {item.text}".lower()

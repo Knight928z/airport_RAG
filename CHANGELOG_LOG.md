@@ -2,6 +2,14 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-10 05:02:12 +0800
+
+- 提交：`fix(citations): prevent uncited battery answers without evidence`
+- 变更文件：
+  - `src/airport_rag/rules.py`
+  - `tests/test_service_rerank.py`
+- 备注：充电宝问题在未检索到直接条款时改为low-confidence提示，避免无依据给出确定结论；新增ask级回归测试确保该场景无引用不作答。
+
 ## 2026-04-10 04:49:15 +0800
 
 - 提交：`feat(vector-lab): localize metrics labels and refine pollution filters`

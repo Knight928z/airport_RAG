@@ -27,6 +27,37 @@ def _service_for_generate_answer_tests() -> AirportRAGService:
     return svc
 
 
+class _AskFakeEmbedding:
+    def embed_query(self, question: str):
+        return [0.0, 0.0, 0.0]
+
+
+class _AskFakeReranker:
+    def rerank(self, question: str, retrieved: list[RetrievedChunk]) -> list[RetrievedChunk]:
+        return retrieved
+
+
+class _AskFakeStore:
+    def __init__(self, chunks: list[RetrievedChunk]) -> None:
+        self._chunks = chunks
+
+    def count(self) -> int:
+        return 1
+
+    def query(self, query_embedding, top_k: int, where=None):
+        return list(self._chunks)
+
+
+def _service_for_ask_tests(chunks: list[RetrievedChunk]) -> AirportRAGService:
+    svc = AirportRAGService.__new__(AirportRAGService)
+    svc.settings = SimpleNamespace(top_k=3, openai_api_key=None)
+    svc.embedding = _AskFakeEmbedding()
+    svc.reranker = _AskFakeReranker()
+    svc.store = _AskFakeStore(chunks)
+    svc._index_rebuild_attempted = True
+    return svc
+
+
 def test_rerank_prioritizes_keyword_overlap() -> None:
     items = [
         RetrievedChunk(
@@ -410,6 +441,28 @@ def test_rule_based_answer_for_battery_mah_without_voltage_uses_estimation() -> 
     assert ans is not None
     assert "3.7V估算" in ans.answer
     assert "需航空公司同意" in ans.answer
+
+
+def test_ask_battery_question_without_evidence_returns_low_confidence_without_citations() -> None:
+    svc = _service_for_ask_tests(
+        [
+            RetrievedChunk(
+                chunk_id="unrelated-1",
+                text="国内出发建议提前2小时到达航站楼办理值机。",
+                source="/data/documents/airport/出发指南-国内出发",
+                page=None,
+                distance=0.1,
+                doc_scope="airport",
+                carrier="",
+            )
+        ]
+    )
+
+    resp = svc.ask("我的充电宝150Wh能带吗？")
+
+    assert resp.confidence_note == "low-confidence"
+    assert resp.citations == []
+    assert "未检索到可直接回答该问题的充电宝业务证据" in resp.answer
 
 
 def test_rule_based_answer_for_customs_hotline_is_low_confidence() -> None:

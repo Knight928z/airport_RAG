@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -156,6 +160,7 @@ def _run_lora_job(job_id: str) -> None:
             output_dir=str(out_dir),
         )
     except Exception as exc:
+        LOGGER.exception("lora training failed: job_id=%s", job_id)
         _update_job(job_id, status="failed", message=f"训练失败: {exc}")
 
 

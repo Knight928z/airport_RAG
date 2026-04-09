@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 import airport_rag.service as service_module
+from airport_rag.config import get_settings
 
 from airport_rag.service import (
     AirportRAGService,
@@ -1361,3 +1362,9 @@ def test_generate_answer_uses_local_lora_when_specific_fact_required(monkeypatch
     assert ans.note == "local-lora-generated"
     assert "需以现场排队显示为准" in ans.answer
     assert "ground-1" in (ans.evidence_chunk_ids or [])
+
+
+def test_default_generation_backend_is_disabled_for_rag_first() -> None:
+    settings = get_settings()
+
+    assert settings.generation_backend in {"disabled", "off", "none"}

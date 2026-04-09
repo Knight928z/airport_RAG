@@ -19,7 +19,7 @@ if _private_env_path:
 class Settings:
     openai_api_key: str | None = os.getenv("OPENAI_API_KEY")
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    generation_backend: str = os.getenv("RAG_GEN_BACKEND", "auto")
+    generation_backend: str = os.getenv("RAG_GEN_BACKEND", "disabled")
     lora_base_model: str = os.getenv("RAG_LORA_BASE_MODEL", "")
     lora_adapter_path: str = os.getenv("RAG_LORA_ADAPTER_PATH", "")
     lora_max_new_tokens: int = int(os.getenv("RAG_LORA_MAX_NEW_TOKENS", "256"))

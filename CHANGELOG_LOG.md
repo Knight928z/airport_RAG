@@ -2,6 +2,16 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-10 06:17:24 +0800
+
+- 提交：`fix(runtime): fallback to rag-first mode and log generation/lora failures`
+- 变更文件：
+  - `src/airport_rag/config.py`
+  - `src/airport_rag/service.py`
+  - `src/airport_rag/lora.py`
+  - `tests/test_service_rerank.py`
+- 备注：默认问答后端切到 `RAG_GEN_BACKEND=disabled`（RAG 主链路优先、生成分支保留可恢复）；新增生成分支失败日志（local_lora/openai）与 LoRA 训练失败异常日志，便于定位“不可行分支”；补充默认后端回归测试防止回退。
+
 ## 2026-04-10 05:55:15 +0800
 
 - 提交：`feat(inference): integrate local lora generation into rag answer chain`

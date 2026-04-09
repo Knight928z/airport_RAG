@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -44,6 +45,9 @@ from .rules import (
 )
 from .schemas import AskResponse, Citation, IngestResponse
 from .vector_store import ChromaStore, RetrievedChunk
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -346,6 +350,10 @@ def _maybe_generate_with_backends(
                     note="local-lora-generated",
                     evidence_chunk_ids=[r.chunk_id for r in grounded[:3]],
                 )
+            LOGGER.warning(
+                "generation branch unavailable: backend=local_lora question=%s",
+                _question_log_excerpt(question),
+            )
         elif target == "openai":
             out = _generate_with_openai(question, grounded, settings)
             if out:
@@ -354,6 +362,10 @@ def _maybe_generate_with_backends(
                     note="model-generated",
                     evidence_chunk_ids=[r.chunk_id for r in grounded[:3]],
                 )
+            LOGGER.warning(
+                "generation branch unavailable: backend=openai question=%s",
+                _question_log_excerpt(question),
+            )
     return None
 
 
@@ -383,6 +395,11 @@ def _generate_with_openai(question: str, grounded: list[RetrievedChunk], setting
         chain = prompt | model | StrOutputParser()
         return chain.invoke({"user_prompt": user_prompt})
     except Exception:
+        LOGGER.exception(
+            "openai generation failed: question=%s model=%s",
+            _question_log_excerpt(question),
+            getattr(settings, "openai_model", ""),
+        )
         return None
 
 
@@ -423,7 +440,20 @@ def _generate_with_local_lora(question: str, grounded: list[RetrievedChunk], set
         out = tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
         return out or None
     except Exception:
+        LOGGER.exception(
+            "local lora generation failed: question=%s base_model=%s adapter=%s",
+            _question_log_excerpt(question),
+            base_model,
+            adapter_path,
+        )
         return None
+
+
+def _question_log_excerpt(question: str, max_len: int = 80) -> str:
+    s = " ".join(str(question or "").split())
+    if len(s) <= max_len:
+        return s
+    return f"{s[:max_len]}..."
 
 
 @lru_cache(maxsize=2)

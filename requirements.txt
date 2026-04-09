@@ -12,4 +12,7 @@ openai==1.72.0
 langchain==0.3.23
 langchain-openai==0.3.12
 langchain-text-splitters==0.3.8
+transformers==4.46.3
+peft==0.13.2
+datasets==3.1.0
 pytest==8.3.5

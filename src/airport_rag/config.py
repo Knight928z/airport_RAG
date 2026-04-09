@@ -21,6 +21,8 @@ class Settings:
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     embedding_backend: str = os.getenv("RAG_EMBEDDING_BACKEND", "sentence_transformers")
     embedding_model: str = os.getenv("RAG_EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")
+    reranker_backend: str = os.getenv("RAG_RERANKER_BACKEND", "cross_encoder")
+    reranker_model: str = os.getenv("RAG_RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
     vector_dir: str = os.getenv("RAG_VECTOR_DIR", "./data/chroma")
     collection_name: str = os.getenv("RAG_COLLECTION", "airport_kb")
     top_k: int = int(os.getenv("RAG_TOP_K", "5"))

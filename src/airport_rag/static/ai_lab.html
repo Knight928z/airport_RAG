@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI 调优实验窗</title>
+    <style>
+      :root { --bg:#f6f8fc; --card:#fff; --line:#dfe6f5; --text:#1f2a44; --muted:#66708a; --primary:#225cff; --ok:#1f8f4e; --danger:#d94848; }
+      * { box-sizing:border-box; }
+      body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); }
+      .wrap { max-width:1200px; margin:0 auto; padding:20px; }
+      .grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+      .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; }
+      h1 { margin:0 0 8px; font-size:24px; }
+      h2 { margin:0 0 10px; font-size:16px; }
+      .muted { color:var(--muted); font-size:13px; }
+      label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+      input, select, textarea { width:100%; border:1px solid var(--line); border-radius:8px; padding:9px 10px; font-size:14px; }
+      textarea { min-height:120px; resize:vertical; }
+      .row { display:flex; gap:8px; }
+      .row > div { flex:1; }
+      button { border:none; background:var(--primary); color:#fff; border-radius:8px; padding:8px 12px; cursor:pointer; }
+      .secondary { background:#51607f; }
+      .status { margin-top:8px; font-size:13px; }
+      .ok { color:var(--ok); }
+      .err { color:var(--danger); }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; white-space: pre-wrap; }
+      .table { border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+      .table .head, .table .row { display:grid; grid-template-columns: 80px 1fr; gap:8px; padding:8px 10px; }
+      .table .head { background:#eef3ff; font-weight:600; }
+      .table .row { border-top:1px solid var(--line); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>AI 调优实验窗</h1>
+      <p class="muted">在一个页面里完成 reranker 调试与 LoRA 微调任务提交。<a href="/admin" style="color:#225cff;text-decoration:none;">返回后台</a></p>
+
+      <div class="grid">
+        <section class="card">
+          <h2>Reranker 调试</h2>
+          <div class="row">
+            <div>
+              <label>backend</label>
+              <select id="rk-backend">
+                <option value="cross_encoder">cross_encoder</option>
+                <option value="heuristic">heuristic</option>
+              </select>
+            </div>
+            <div>
+              <label>model</label>
+              <input id="rk-model" placeholder="BAAI/bge-reranker-v2-m3" />
+            </div>
+          </div>
+          <div class="row" style="margin-top:8px;">
+            <button id="rk-save">保存配置</button>
+            <button id="rk-refresh" class="secondary">刷新</button>
+          </div>
+
+          <label style="margin-top:10px;">问题</label>
+          <input id="rk-question" placeholder="国际到达是什么？" />
+          <label style="margin-top:8px;">候选文本（每行一条）</label>
+          <textarea id="rk-cands" class="mono" placeholder="候选1\n候选2\n候选3"></textarea>
+          <button id="rk-run" style="margin-top:8px;">执行重排预览</button>
+
+          <div id="rk-status" class="status"></div>
+          <div id="rk-result" class="table" style="margin-top:8px;"></div>
+        </section>
+
+        <section class="card">
+          <h2>LoRA 微调任务</h2>
+          <div class="row">
+            <div>
+              <label>训练文件（json/jsonl 绝对路径）</label>
+              <input id="lora-train-file" placeholder="/Users/.../train.jsonl" />
+            </div>
+          </div>
+          <div class="row" style="margin-top:8px;">
+            <div>
+              <label>输出子目录</label>
+              <input id="lora-out" value="airport-lora" />
+            </div>
+            <div>
+              <label>基础模型</label>
+              <input id="lora-base" value="Qwen/Qwen2.5-0.5B-Instruct" />
+            </div>
+          </div>
+          <div class="row" style="margin-top:8px;">
+            <div><label>epochs</label><input id="lora-epochs" type="number" step="0.1" value="1" /></div>
+            <div><label>batch_size</label><input id="lora-bs" type="number" value="2" /></div>
+            <div><label>learning_rate</label><input id="lora-lr" type="number" step="0.00001" value="0.0002" /></div>
+          </div>
+          <div class="row" style="margin-top:8px;">
+            <div><label>lora_r</label><input id="lora-r" type="number" value="8" /></div>
+            <div><label>lora_alpha</label><input id="lora-alpha" type="number" value="16" /></div>
+            <div><label>lora_dropout</label><input id="lora-drop" type="number" step="0.01" value="0.05" /></div>
+          </div>
+          <button id="lora-submit" style="margin-top:10px;">提交训练任务</button>
+          <button id="lora-refresh" class="secondary" style="margin-top:10px;">刷新任务列表</button>
+
+          <div id="lora-status" class="status"></div>
+          <div id="lora-jobs" class="mono" style="margin-top:8px; border:1px solid var(--line); border-radius:8px; padding:8px; max-height:320px; overflow:auto;"></div>
+        </section>
+      </div>
+    </div>
+
+    <script>
+      const rkBackend = document.getElementById('rk-backend');
+      const rkModel = document.getElementById('rk-model');
+      const rkStatus = document.getElementById('rk-status');
+      const rkResult = document.getElementById('rk-result');
+      const rkQuestion = document.getElementById('rk-question');
+      const rkCands = document.getElementById('rk-cands');
+
+      function setStatus(el, text, ok=true) {
+        el.textContent = text;
+        el.className = 'status ' + (ok ? 'ok' : 'err');
+      }
+
+      async function loadRerankerConfig() {
+        const res = await fetch('/admin/reranker/config');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '加载配置失败');
+        rkBackend.value = data.backend;
+        rkModel.value = data.model_name;
+      }
+
+      async function saveRerankerConfig() {
+        const payload = { backend: rkBackend.value, model_name: rkModel.value.trim() };
+        const res = await fetch('/admin/reranker/config', {
+          method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '保存失败');
+        setStatus(rkStatus, `已保存：${data.backend} / ${data.model_name}`);
+      }
+
+      async function previewRerank() {
+        const cands = rkCands.value.split('\n').map(x => x.trim()).filter(Boolean);
+        const payload = { question: rkQuestion.value.trim(), candidates: cands };
+        const res = await fetch('/admin/reranker/preview', {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '预览失败');
+
+        rkResult.innerHTML = '<div class="head"><div>score</div><div>text</div></div>';
+        (data.results || []).forEach(r => {
+          const row = document.createElement('div');
+          row.className = 'row';
+          row.innerHTML = `<div>${Number(r.score).toFixed(4)}</div><div>${r.text}</div>`;
+          rkResult.appendChild(row);
+        });
+        setStatus(rkStatus, `重排完成（${data.backend}）`);
+      }
+
+      const loraStatus = document.getElementById('lora-status');
+      const loraJobs = document.getElementById('lora-jobs');
+
+      async function submitLoraJob() {
+        const payload = {
+          train_file: document.getElementById('lora-train-file').value.trim(),
+          output_subdir: document.getElementById('lora-out').value.trim(),
+          base_model: document.getElementById('lora-base').value.trim(),
+          epochs: Number(document.getElementById('lora-epochs').value),
+          batch_size: Number(document.getElementById('lora-bs').value),
+          learning_rate: Number(document.getElementById('lora-lr').value),
+          lora_r: Number(document.getElementById('lora-r').value),
+          lora_alpha: Number(document.getElementById('lora-alpha').value),
+          lora_dropout: Number(document.getElementById('lora-drop').value),
+        };
+        const res = await fetch('/admin/lora/train', {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '提交失败');
+        setStatus(loraStatus, `任务已提交：${data.job.job_id}`);
+        await refreshLoraJobs();
+      }
+
+      async function refreshLoraJobs() {
+        const res = await fetch('/admin/lora/jobs');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '加载任务失败');
+        const rows = data.jobs || [];
+        if (!rows.length) {
+          loraJobs.textContent = '暂无任务';
+          return;
+        }
+        loraJobs.textContent = rows.map(j => {
+          return [
+            `job_id: ${j.job_id}`,
+            `status: ${j.status}`,
+            `created_at: ${j.created_at}`,
+            `updated_at: ${j.updated_at}`,
+            `message: ${j.message || ''}`,
+            `output_dir: ${j.output_dir || ''}`,
+            '---'
+          ].join('\n');
+        }).join('\n');
+      }
+
+      document.getElementById('rk-refresh').onclick = async () => { try { await loadRerankerConfig(); setStatus(rkStatus, '配置已刷新'); } catch (e) { setStatus(rkStatus, e.message, false); } };
+      document.getElementById('rk-save').onclick = async () => { try { await saveRerankerConfig(); } catch (e) { setStatus(rkStatus, e.message, false); } };
+      document.getElementById('rk-run').onclick = async () => { try { await previewRerank(); } catch (e) { setStatus(rkStatus, e.message, false); } };
+
+      document.getElementById('lora-submit').onclick = async () => { try { await submitLoraJob(); } catch (e) { setStatus(loraStatus, e.message, false); } };
+      document.getElementById('lora-refresh').onclick = async () => { try { await refreshLoraJobs(); setStatus(loraStatus, '任务列表已刷新'); } catch (e) { setStatus(loraStatus, e.message, false); } };
+
+      (async () => {
+        try {
+          await loadRerankerConfig();
+          await refreshLoraJobs();
+        } catch (e) {
+          console.error(e);
+        }
+      })();
+    </script>
+  </body>
+</html>

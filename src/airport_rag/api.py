@@ -30,6 +30,8 @@ from .service import AirportRAGService
 from .ingest import extract_text_from_image
 from .realtime_flight import query_realtime_flight, normalize_flight_no
 from .eval_cases import DEFAULT_SELF_TEST_CASES
+from .reranker import RerankerProvider
+from .lora import start_lora_job, list_lora_jobs, get_lora_job
 
 
 app = FastAPI(title="Airport KB RAG Assistant", version="1.0.0")
@@ -46,6 +48,7 @@ UNCOVERED_LOG = FEEDBACK_ROOT / "uncovered_questions.jsonl"
 PATCH_DOC_NAME = "用户纠错补丁.md"
 PATCH_REGISTRY_LOG = FEEDBACK_ROOT / "patch_registry.jsonl"
 PATCH_AUDIT_LOG = FEEDBACK_ROOT / "patch_audit.jsonl"
+LORA_ROOT = (DATA_ROOT / "lora").resolve()
 PATCH_MAX_BYTES = 64 * 1024
 PATCH_MERGE_ENTRY_THRESHOLD = 8
 _LEGACY_PATCH_MIGRATED = False
@@ -512,6 +515,14 @@ def admin_ocr_review_home() -> FileResponse:
     return FileResponse(page_file)
 
 
+@app.get("/admin/ai-lab")
+def admin_ai_lab_home() -> FileResponse:
+    page_file = STATIC_DIR / "ai_lab.html"
+    if not page_file.exists():
+        raise HTTPException(status_code=404, detail="AI lab page not found")
+    return FileResponse(page_file)
+
+
 class AdminClassifyRequest(BaseModel):
     filename: str = Field(min_length=1)
     content: str = ""
@@ -526,6 +537,30 @@ class AdminCreateDocRequest(AdminClassifyRequest):
 class AdminUpdateDocRequest(BaseModel):
     content: str
     auto_sync: bool = True
+
+
+class RerankerConfigRequest(BaseModel):
+    backend: str = Field(default="cross_encoder")
+    model_name: str = Field(default="BAAI/bge-reranker-v2-m3")
+
+
+class RerankerPreviewRequest(BaseModel):
+    question: str = Field(min_length=2)
+    candidates: List[str] = Field(default_factory=list)
+
+
+class LoRATrainRequest(BaseModel):
+    train_file: str = Field(description="训练数据路径（json/jsonl）")
+    output_subdir: str = Field(default="airport-lora", description="输出目录子路径")
+    base_model: str = Field(default="Qwen/Qwen2.5-0.5B-Instruct")
+    epochs: float = Field(default=1.0, ge=0.1, le=20)
+    batch_size: int = Field(default=2, ge=1, le=64)
+    learning_rate: float = Field(default=2e-4, gt=0)
+    max_length: int = Field(default=512, ge=64, le=4096)
+    lora_r: int = Field(default=8, ge=1, le=256)
+    lora_alpha: int = Field(default=16, ge=1, le=1024)
+    lora_dropout: float = Field(default=0.05, ge=0.0, le=0.5)
+    target_modules: Optional[List[str]] = None
 
 
 def _normalize_text_key(text: str) -> str:
@@ -566,6 +601,16 @@ def _safe_patch_path(relative_path: str) -> Path:
     candidate = (PATCH_ROOT / rel).resolve()
     if PATCH_ROOT not in candidate.parents and candidate != PATCH_ROOT:
         raise HTTPException(status_code=400, detail="invalid patch path")
+    return candidate
+
+
+def _safe_lora_output_path(subdir: str) -> Path:
+    rel = Path(subdir)
+    if rel.is_absolute():
+        raise HTTPException(status_code=400, detail="output_subdir must be relative")
+    candidate = (LORA_ROOT / rel).resolve()
+    if LORA_ROOT not in candidate.parents and candidate != LORA_ROOT:
+        raise HTTPException(status_code=400, detail="invalid output_subdir")
     return candidate
 
 
@@ -1316,6 +1361,88 @@ def admin_patch_review_merge(cleanup: bool = True) -> dict:
         **result,
         "stats": _build_patch_stats(),
     }
+
+
+@app.get("/admin/reranker/config")
+def admin_get_reranker_config() -> dict:
+    return {
+        "backend": service.settings.reranker_backend,
+        "model_name": service.settings.reranker_model,
+    }
+
+
+@app.put("/admin/reranker/config")
+def admin_set_reranker_config(req: RerankerConfigRequest) -> dict:
+    backend = (req.backend or "").strip().lower()
+    if backend not in {"cross_encoder", "heuristic"}:
+        raise HTTPException(status_code=400, detail="backend must be cross_encoder or heuristic")
+
+    service.settings.reranker_backend = backend
+    service.settings.reranker_model = (req.model_name or "").strip() or "BAAI/bge-reranker-v2-m3"
+    service.reranker = RerankerProvider(
+        backend=service.settings.reranker_backend,
+        model_name=service.settings.reranker_model,
+    )
+    return {
+        "status": "ok",
+        "backend": service.settings.reranker_backend,
+        "model_name": service.settings.reranker_model,
+    }
+
+
+@app.post("/admin/reranker/preview")
+def admin_preview_reranker(req: RerankerPreviewRequest) -> dict:
+    candidates = [c.strip() for c in (req.candidates or []) if c and c.strip()]
+    if not candidates:
+        raise HTTPException(status_code=400, detail="candidates is required")
+
+    scores = service.reranker.score_pairs(req.question, candidates)
+    ranked = sorted(
+        [{"text": c, "score": float(s)} for c, s in zip(candidates, scores)],
+        key=lambda x: x["score"],
+        reverse=True,
+    )
+    return {
+        "backend": service.settings.reranker_backend,
+        "model_name": service.settings.reranker_model,
+        "results": ranked,
+    }
+
+
+@app.post("/admin/lora/train")
+def admin_start_lora_train(req: LoRATrainRequest) -> dict:
+    train_file = Path(req.train_file).resolve()
+    output_dir = _safe_lora_output_path(req.output_subdir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    cfg = {
+        "train_file": str(train_file),
+        "output_dir": str(output_dir),
+        "base_model": req.base_model,
+        "epochs": req.epochs,
+        "batch_size": req.batch_size,
+        "learning_rate": req.learning_rate,
+        "max_length": req.max_length,
+        "lora_r": req.lora_r,
+        "lora_alpha": req.lora_alpha,
+        "lora_dropout": req.lora_dropout,
+        "target_modules": req.target_modules or ["q_proj", "v_proj"],
+    }
+    job = start_lora_job(cfg)
+    return {"status": "accepted", "job": job}
+
+
+@app.get("/admin/lora/jobs")
+def admin_list_lora_jobs() -> dict:
+    return {"jobs": list_lora_jobs()}
+
+
+@app.get("/admin/lora/jobs/{job_id}")
+def admin_get_lora_job(job_id: str) -> dict:
+    job = get_lora_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job not found")
+    return job
 
 
 @app.get("/self-test")

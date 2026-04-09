@@ -10,6 +10,7 @@ from .config import Settings, get_settings
 from .embeddings import EmbeddingProvider
 from .ingest import ingest_path
 from .prompts import SYSTEM_STYLE, build_user_prompt
+from .reranker import RerankerProvider, heuristic_rerank
 from .rules import (
     AIRLINE_SCOPE_KEYWORDS,
     AIRPORT_SCOPE_KEYWORDS,
@@ -71,6 +72,10 @@ class AirportRAGService:
             backend=self.settings.embedding_backend,
             model_name=self.settings.embedding_model,
         )
+        self.reranker = RerankerProvider(
+            backend=self.settings.reranker_backend,
+            model_name=self.settings.reranker_model,
+        )
         collection_name = _build_collection_name(
             base=self.settings.collection_name,
             backend=self.settings.embedding_backend,
@@ -121,7 +126,7 @@ class AirportRAGService:
                 confidence_note="index-empty",
             )
 
-        retrieved = _rerank_retrieved(expanded_question, retrieved)
+        retrieved = self.reranker.rerank(expanded_question, retrieved)
         retrieved = _filter_retrieved_by_relevance(expanded_question, retrieved, keep_top=retrieval_k)
         raw_retrieved = list(retrieved)
         focused = _focus_retrieved(expanded_question, retrieved)
@@ -522,16 +527,8 @@ def _query_terms(text: str) -> set[str]:
 
 
 def _rerank_retrieved(question: str, retrieved: list[RetrievedChunk]) -> list[RetrievedChunk]:
-    if len(retrieved) <= 1:
-        return retrieved
-
-    q_tokens = _tokenize(question)
-
-    def _score(item: RetrievedChunk) -> tuple[int, float]:
-        overlap = len(q_tokens.intersection(_tokenize(item.text)))
-        return (-overlap, item.distance)
-
-    return sorted(retrieved, key=_score)
+    # keep backward-compatible helper for tests and offline fallback behavior
+    return heuristic_rerank(question, retrieved)
 
 
 def _focus_retrieved(question: str, retrieved: list[RetrievedChunk]) -> list[RetrievedChunk]:

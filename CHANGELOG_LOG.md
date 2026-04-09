@@ -2,6 +2,21 @@
 
 > 记录代码改动内容与时间戳（按时间倒序追加）。
 
+## 2026-04-09 13:14:12 +0800
+
+- 提交：`feat(ai-lab): add LoRA fine-tuning jobs and reranker visualization panel`
+- 变更文件：
+  - `requirements.txt`
+  - `src/airport_rag/api.py`
+  - `src/airport_rag/config.py`
+  - `src/airport_rag/lora.py`
+  - `src/airport_rag/reranker.py`
+  - `src/airport_rag/service.py`
+  - `src/airport_rag/static/admin.html`
+  - `src/airport_rag/static/ai_lab.html`
+  - `tests/test_admin_ai_lab.py`
+- 备注：新增 LoRA 微调能力（后台任务提交/状态追踪）并接入可视化小窗口；新增 reranker 配置与重排预览接口，并在同一实验窗展示；服务层接入可配置 reranker（cross-encoder + heuristic fallback），补充接口测试与核心回归验证通过。
+
 ## 2026-04-09 12:26:39 +0800
 
 - 提交：`feat(cli): enrich command interface and built-in self-test modes`
